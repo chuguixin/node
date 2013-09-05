@@ -19,15 +19,14 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#ifndef SRC_NODE_BUFFER_H_
+#define SRC_NODE_BUFFER_H_
+
 #include "node.h"
 #include "smalloc.h"
 #include "v8.h"
 
-#ifndef NODE_BUFFER_H_
-#define NODE_BUFFER_H_
-
 namespace node {
-
 namespace Buffer {
 
 static const unsigned int kMaxLength = smalloc::kMaxLength;
@@ -58,7 +57,6 @@ NODE_EXTERN v8::Local<v8::Object> New(char* data,
 NODE_EXTERN v8::Local<v8::Object> Use(char* data, uint32_t len);
 
 }  // namespace Buffer
-
 }  // namespace node
 
-#endif  // NODE_BUFFER_H_
+#endif  // SRC_NODE_BUFFER_H_

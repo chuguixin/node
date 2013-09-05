@@ -333,6 +333,7 @@ const int kStubMinorKeyBits = kBitsPerInt - kSmiTagSize - kStubMajorKeyBits;
   V(CONS_STRING_TYPE)                                                          \
   V(CONS_ASCII_STRING_TYPE)                                                    \
   V(SLICED_STRING_TYPE)                                                        \
+  V(SLICED_ASCII_STRING_TYPE)                                                  \
   V(EXTERNAL_STRING_TYPE)                                                      \
   V(EXTERNAL_ASCII_STRING_TYPE)                                                \
   V(EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE)                                   \
@@ -357,7 +358,6 @@ const int kStubMinorKeyBits = kBitsPerInt - kSmiTagSize - kStubMajorKeyBits;
   V(ODDBALL_TYPE)                                                              \
   V(CELL_TYPE)                                                                 \
   V(PROPERTY_CELL_TYPE)                                                        \
-  V(BOX_TYPE)                                                                  \
                                                                                \
   V(HEAP_NUMBER_TYPE)                                                          \
   V(FOREIGN_TYPE)                                                              \
@@ -395,6 +395,7 @@ const int kStubMinorKeyBits = kBitsPerInt - kSmiTagSize - kStubMajorKeyBits;
   V(POLYMORPHIC_CODE_CACHE_TYPE)                                               \
   V(TYPE_FEEDBACK_INFO_TYPE)                                                   \
   V(ALIASED_ARGUMENTS_ENTRY_TYPE)                                              \
+  V(BOX_TYPE)                                                                  \
                                                                                \
   V(FIXED_ARRAY_TYPE)                                                          \
   V(FIXED_DOUBLE_ARRAY_TYPE)                                                   \
@@ -416,6 +417,8 @@ const int kStubMinorKeyBits = kBitsPerInt - kSmiTagSize - kStubMajorKeyBits;
   V(JS_TYPED_ARRAY_TYPE)                                                       \
   V(JS_DATA_VIEW_TYPE)                                                         \
   V(JS_PROXY_TYPE)                                                             \
+  V(JS_SET_TYPE)                                                               \
+  V(JS_MAP_TYPE)                                                               \
   V(JS_WEAK_MAP_TYPE)                                                          \
   V(JS_WEAK_SET_TYPE)                                                          \
   V(JS_REGEXP_TYPE)                                                            \
@@ -699,7 +702,6 @@ enum InstanceType {
   ODDBALL_TYPE,
   CELL_TYPE,
   PROPERTY_CELL_TYPE,
-  BOX_TYPE,
 
   // "Data", objects that cannot contain non-map-word pointers to heap
   // objects.
@@ -738,6 +740,7 @@ enum InstanceType {
   POLYMORPHIC_CODE_CACHE_TYPE,
   TYPE_FEEDBACK_INFO_TYPE,
   ALIASED_ARGUMENTS_ENTRY_TYPE,
+  BOX_TYPE,
   // The following two instance types are only used when ENABLE_DEBUGGER_SUPPORT
   // is defined. However as include/v8.h contain some of the instance type
   // constants always having them avoids them getting different numbers
@@ -783,7 +786,6 @@ enum InstanceType {
   // Pseudo-types
   FIRST_TYPE = 0x0,
   LAST_TYPE = JS_FUNCTION_TYPE,
-  INVALID_TYPE = FIRST_TYPE - 1,
   FIRST_NAME_TYPE = FIRST_TYPE,
   LAST_NAME_TYPE = SYMBOL_TYPE,
   FIRST_UNIQUE_NAME_TYPE = INTERNALIZED_STRING_TYPE,
@@ -1046,7 +1048,287 @@ class MaybeObject BASE_EMBEDDED {
   V(AccessCheckNeeded)                         \
   V(Cell)                                      \
   V(PropertyCell)                              \
-  V(ObjectHashTable)                           \
+  V(ObjectHashTable)
+
+
+#define ERROR_MESSAGES_LIST(V) \
+  V(kNoReason, "no reason")                                                   \
+                                                                              \
+  V(k32BitValueInRegisterIsNotZeroExtended,                                   \
+    "32 bit value in register is not zero-extended")                          \
+  V(kAlignmentMarkerExpected, "alignment marker expected")                    \
+  V(kAllocationIsNotDoubleAligned, "Allocation is not double aligned")        \
+  V(kAPICallReturnedInvalidObject, "API call returned invalid object")        \
+  V(kArgumentsObjectValueInATestContext,                                      \
+    "arguments object value in a test context")                               \
+  V(kArrayBoilerplateCreationFailed, "array boilerplate creation failed")     \
+  V(kArrayIndexConstantValueTooBig, "array index constant value too big")     \
+  V(kAssignmentToArguments, "assignment to arguments")                        \
+  V(kAssignmentToLetVariableBeforeInitialization,                             \
+    "assignment to let variable before initialization")                       \
+  V(kAssignmentToLOOKUPVariable, "assignment to LOOKUP variable")             \
+  V(kAssignmentToParameterFunctionUsesArgumentsObject,                        \
+    "assignment to parameter, function uses arguments object")                \
+  V(kAssignmentToParameterInArgumentsObject,                                  \
+    "assignment to parameter in arguments object")                            \
+  V(kAttemptToUseUndefinedCache, "Attempt to use undefined cache")            \
+  V(kBadValueContextForArgumentsObjectValue,                                  \
+    "bad value context for arguments object value")                           \
+  V(kBadValueContextForArgumentsValue,                                        \
+    "bad value context for arguments value")                                  \
+  V(kBailedOutDueToDependencyChange, "bailed out due to dependency change")   \
+  V(kBailoutWasNotPrepared, "bailout was not prepared")                       \
+  V(kBinaryStubGenerateFloatingPointCode,                                     \
+    "BinaryStub_GenerateFloatingPointCode")                                   \
+  V(kBothRegistersWereSmisInSelectNonSmi,                                     \
+    "Both registers were smis in SelectNonSmi")                               \
+  V(kCallToAJavaScriptRuntimeFunction,                                        \
+    "call to a JavaScript runtime function")                                  \
+  V(kCannotTranslatePositionInChangedArea,                                    \
+    "Cannot translate position in changed area")                              \
+  V(kCodeGenerationFailed, "code generation failed")                          \
+  V(kCodeObjectNotProperlyPatched, "code object not properly patched")        \
+  V(kCompoundAssignmentToLookupSlot, "compound assignment to lookup slot")    \
+  V(kContextAllocatedArguments, "context-allocated arguments")                \
+  V(kDebuggerIsActive, "debugger is active")                                  \
+  V(kDebuggerStatement, "DebuggerStatement")                                  \
+  V(kDeclarationInCatchContext, "Declaration in catch context")               \
+  V(kDeclarationInWithContext, "Declaration in with context")                 \
+  V(kDefaultNaNModeNotSet, "Default NaN mode not set")                        \
+  V(kDeleteWithGlobalVariable, "delete with global variable")                 \
+  V(kDeleteWithNonGlobalVariable, "delete with non-global variable")          \
+  V(kDestinationOfCopyNotAligned, "Destination of copy not aligned")          \
+  V(kDontDeleteCellsCannotContainTheHole,                                     \
+    "DontDelete cells can't contain the hole")                                \
+  V(kDoPushArgumentNotImplementedForDoubleType,                               \
+    "DoPushArgument not implemented for double type")                         \
+  V(kEmitLoadRegisterUnsupportedDoubleImmediate,                              \
+    "EmitLoadRegister: Unsupported double immediate")                         \
+  V(kEval, "eval")                                                            \
+  V(kExpected0AsASmiSentinel, "Expected 0 as a Smi sentinel")                 \
+  V(kExpectedAlignmentMarker, "expected alignment marker")                    \
+  V(kExpectedPropertyCellInRegisterA2,                                        \
+    "Expected property cell in register a2")                                  \
+  V(kExpectedPropertyCellInRegisterEbx,                                       \
+    "Expected property cell in register ebx")                                 \
+  V(kExpectedPropertyCellInRegisterRbx,                                       \
+    "Expected property cell in register rbx")                                 \
+  V(kExpectingAlignmentForCopyBytes,                                          \
+    "Expecting alignment for CopyBytes")                                      \
+  V(kExternalStringExpectedButNotFound,                                       \
+    "external string expected, but not found")                                \
+  V(kFailedBailedOutLastTime, "failed/bailed out last time")                  \
+  V(kForInStatementIsNotFastCase, "ForInStatement is not fast case")          \
+  V(kForInStatementOptimizationIsDisabled,                                    \
+    "ForInStatement optimization is disabled")                                \
+  V(kForInStatementWithNonLocalEachVariable,                                  \
+    "ForInStatement with non-local each variable")                            \
+  V(kForOfStatement, "ForOfStatement")                                        \
+  V(kFrameIsExpectedToBeAligned, "frame is expected to be aligned")           \
+  V(kFunctionCallsEval, "function calls eval")                                \
+  V(kFunctionIsAGenerator, "function is a generator")                         \
+  V(kFunctionWithIllegalRedeclaration, "function with illegal redeclaration") \
+  V(kGeneratedCodeIsTooLarge, "Generated code is too large")                  \
+  V(kGeneratorFailedToResume, "Generator failed to resume")                   \
+  V(kGenerator, "generator")                                                  \
+  V(kGlobalFunctionsMustHaveInitialMap,                                       \
+    "Global functions must have initial map")                                 \
+  V(kHeapNumberMapRegisterClobbered, "HeapNumberMap register clobbered")      \
+  V(kImproperObjectOnPrototypeChainForStore,                                  \
+    "improper object on prototype chain for store")                           \
+  V(kIndexIsNegative, "Index is negative")                                    \
+  V(kIndexIsTooLarge, "Index is too large")                                   \
+  V(kInlinedRuntimeFunctionClassOf, "inlined runtime function: ClassOf")      \
+  V(kInlinedRuntimeFunctionFastAsciiArrayJoin,                                \
+    "inlined runtime function: FastAsciiArrayJoin")                           \
+  V(kInlinedRuntimeFunctionGeneratorNext,                                     \
+    "inlined runtime function: GeneratorNext")                                \
+  V(kInlinedRuntimeFunctionGeneratorThrow,                                    \
+    "inlined runtime function: GeneratorThrow")                               \
+  V(kInlinedRuntimeFunctionGetFromCache,                                      \
+    "inlined runtime function: GetFromCache")                                 \
+  V(kInlinedRuntimeFunctionIsNonNegativeSmi,                                  \
+    "inlined runtime function: IsNonNegativeSmi")                             \
+  V(kInlinedRuntimeFunctionIsRegExpEquivalent,                                \
+    "inlined runtime function: IsRegExpEquivalent")                           \
+  V(kInlinedRuntimeFunctionIsStringWrapperSafeForDefaultValueOf,              \
+    "inlined runtime function: IsStringWrapperSafeForDefaultValueOf")         \
+  V(kInliningBailedOut, "inlining bailed out")                                \
+  V(kInputGPRIsExpectedToHaveUpper32Cleared,                                  \
+    "input GPR is expected to have upper32 cleared")                          \
+  V(kInstanceofStubUnexpectedCallSiteCacheCheck,                              \
+    "InstanceofStub unexpected call site cache (check)")                      \
+  V(kInstanceofStubUnexpectedCallSiteCacheCmp1,                               \
+    "InstanceofStub unexpected call site cache (cmp 1)")                      \
+  V(kInstanceofStubUnexpectedCallSiteCacheCmp2,                               \
+    "InstanceofStub unexpected call site cache (cmp 2)")                      \
+  V(kInstanceofStubUnexpectedCallSiteCacheMov,                                \
+    "InstanceofStub unexpected call site cache (mov)")                        \
+  V(kInteger32ToSmiFieldWritingToNonSmiLocation,                              \
+    "Integer32ToSmiField writing to non-smi location")                        \
+  V(kInvalidCaptureReferenced, "Invalid capture referenced")                  \
+  V(kInvalidElementsKindForInternalArrayOrInternalPackedArray,                \
+    "Invalid ElementsKind for InternalArray or InternalPackedArray")          \
+  V(kInvalidHandleScopeLevel, "Invalid HandleScope level")                    \
+  V(kInvalidLeftHandSideInAssignment, "invalid left-hand side in assignment") \
+  V(kInvalidLhsInCompoundAssignment, "invalid lhs in compound assignment")    \
+  V(kInvalidLhsInCountOperation, "invalid lhs in count operation")            \
+  V(kInvalidMinLength, "Invalid min_length")                                  \
+  V(kJSGlobalObjectNativeContextShouldBeANativeContext,                       \
+    "JSGlobalObject::native_context should be a native context")              \
+  V(kJSGlobalProxyContextShouldNotBeNull,                                     \
+    "JSGlobalProxy::context() should not be null")                            \
+  V(kJSObjectWithFastElementsMapHasSlowElements,                              \
+    "JSObject with fast elements map has slow elements")                      \
+  V(kLetBindingReInitialization, "Let binding re-initialization")             \
+  V(kLiveBytesCountOverflowChunkSize, "Live Bytes Count overflow chunk size") \
+  V(kLiveEditFrameDroppingIsNotSupportedOnArm,                                \
+    "LiveEdit frame dropping is not supported on arm")                        \
+  V(kLiveEditFrameDroppingIsNotSupportedOnMips,                               \
+    "LiveEdit frame dropping is not supported on mips")                       \
+  V(kLiveEdit, "LiveEdit")                                                    \
+  V(kLookupVariableInCountOperation,                                          \
+    "lookup variable in count operation")                                     \
+  V(kMapIsNoLongerInEax, "Map is no longer in eax")                           \
+  V(kNoCasesLeft, "no cases left")                                            \
+  V(kNoEmptyArraysHereInEmitFastAsciiArrayJoin,                               \
+    "No empty arrays here in EmitFastAsciiArrayJoin")                         \
+  V(kNonInitializerAssignmentToConst,                                         \
+    "non-initializer assignment to const")                                    \
+  V(kNonSmiIndex, "Non-smi index")                                            \
+  V(kNonSmiKeyInArrayLiteral, "Non-smi key in array literal")                 \
+  V(kNonSmiValue, "Non-smi value")                                            \
+  V(kNotEnoughVirtualRegistersForValues,                                      \
+    "not enough virtual registers for values")                                \
+  V(kNotEnoughVirtualRegistersRegalloc,                                       \
+    "not enough virtual registers (regalloc)")                                \
+  V(kObjectFoundInSmiOnlyArray, "object found in smi-only array")             \
+  V(kObjectLiteralWithComplexProperty,                                        \
+    "Object literal with complex property")                                   \
+  V(kOddballInStringTableIsNotUndefinedOrTheHole,                             \
+    "oddball in string table is not undefined or the hole")                   \
+  V(kOperandIsASmiAndNotAName, "Operand is a smi and not a name")             \
+  V(kOperandIsASmiAndNotAString, "Operand is a smi and not a string")         \
+  V(kOperandIsASmi, "Operand is a smi")                                       \
+  V(kOperandIsNotAName, "Operand is not a name")                              \
+  V(kOperandIsNotANumber, "Operand is not a number")                          \
+  V(kOperandIsNotASmi, "Operand is not a smi")                                \
+  V(kOperandIsNotAString, "Operand is not a string")                          \
+  V(kOperandIsNotSmi, "Operand is not smi")                                   \
+  V(kOperandNotANumber, "Operand not a number")                               \
+  V(kOptimizedTooManyTimes, "optimized too many times")                       \
+  V(kOutOfVirtualRegistersWhileTryingToAllocateTempRegister,                  \
+    "Out of virtual registers while trying to allocate temp register")        \
+  V(kParseScopeError, "parse/scope error")                                    \
+  V(kPossibleDirectCallToEval, "possible direct call to eval")                \
+  V(kPropertyAllocationCountFailed, "Property allocation count failed")       \
+  V(kReceivedInvalidReturnAddress, "Received invalid return address")         \
+  V(kReferenceToAVariableWhichRequiresDynamicLookup,                          \
+    "reference to a variable which requires dynamic lookup")                  \
+  V(kReferenceToGlobalLexicalVariable,                                        \
+    "reference to global lexical variable")                                   \
+  V(kReferenceToUninitializedVariable, "reference to uninitialized variable") \
+  V(kRegisterDidNotMatchExpectedRoot, "Register did not match expected root") \
+  V(kRegisterWasClobbered, "register was clobbered")                          \
+  V(kScopedBlock, "ScopedBlock")                                              \
+  V(kSharedFunctionInfoLiteral, "SharedFunctionInfoLiteral")                  \
+  V(kSmiAdditionOverflow, "Smi addition overflow")                            \
+  V(kSmiSubtractionOverflow, "Smi subtraction overflow")                      \
+  V(kStackFrameTypesMustMatch, "stack frame types must match")                \
+  V(kSwitchStatementMixedOrNonLiteralSwitchLabels,                            \
+    "SwitchStatement: mixed or non-literal switch labels")                    \
+  V(kSwitchStatementTooManyClauses, "SwitchStatement: too many clauses")      \
+  V(kTheInstructionShouldBeALui, "The instruction should be a lui")           \
+  V(kTheInstructionShouldBeAnOri, "The instruction should be an ori")         \
+  V(kTheInstructionToPatchShouldBeALoadFromPc,                                \
+    "The instruction to patch should be a load from pc")                      \
+  V(kTheInstructionToPatchShouldBeALui,                                       \
+    "The instruction to patch should be a lui")                               \
+  V(kTheInstructionToPatchShouldBeAnOri,                                      \
+    "The instruction to patch should be an ori")                              \
+  V(kTooManyParametersLocals, "too many parameters/locals")                   \
+  V(kTooManyParameters, "too many parameters")                                \
+  V(kTooManySpillSlotsNeededForOSR, "Too many spill slots needed for OSR")    \
+  V(kToOperandIsDoubleRegisterUnimplemented,                                  \
+    "ToOperand IsDoubleRegister unimplemented")                               \
+  V(kToOperandUnsupportedDoubleImmediate,                                     \
+    "ToOperand Unsupported double immediate")                                 \
+  V(kTryCatchStatement, "TryCatchStatement")                                  \
+  V(kTryFinallyStatement, "TryFinallyStatement")                              \
+  V(kUnableToEncodeValueAsSmi, "Unable to encode value as smi")               \
+  V(kUnalignedAllocationInNewSpace, "Unaligned allocation in new space")      \
+  V(kUndefinedValueNotLoaded, "Undefined value not loaded")                   \
+  V(kUndoAllocationOfNonAllocatedMemory,                                      \
+    "Undo allocation of non allocated memory")                                \
+  V(kUnexpectedAllocationTop, "Unexpected allocation top")                    \
+  V(kUnexpectedElementsKindInArrayConstructor,                                \
+    "Unexpected ElementsKind in array constructor")                           \
+  V(kUnexpectedFallthroughFromCharCodeAtSlowCase,                             \
+    "Unexpected fallthrough from CharCodeAt slow case")                       \
+  V(kUnexpectedFallthroughFromCharFromCodeSlowCase,                           \
+    "Unexpected fallthrough from CharFromCode slow case")                     \
+  V(kUnexpectedFallThroughFromStringComparison,                               \
+    "Unexpected fall-through from string comparison")                         \
+  V(kUnexpectedFallThroughInBinaryStubGenerateFloatingPointCode,              \
+    "Unexpected fall-through in BinaryStub_GenerateFloatingPointCode")        \
+  V(kUnexpectedFallthroughToCharCodeAtSlowCase,                               \
+    "Unexpected fallthrough to CharCodeAt slow case")                         \
+  V(kUnexpectedFallthroughToCharFromCodeSlowCase,                             \
+    "Unexpected fallthrough to CharFromCode slow case")                       \
+  V(kUnexpectedFPUStackDepthAfterInstruction,                                 \
+    "Unexpected FPU stack depth after instruction")                           \
+  V(kUnexpectedInitialMapForArrayFunction1,                                   \
+    "Unexpected initial map for Array function (1)")                          \
+  V(kUnexpectedInitialMapForArrayFunction2,                                   \
+    "Unexpected initial map for Array function (2)")                          \
+  V(kUnexpectedInitialMapForArrayFunction,                                    \
+    "Unexpected initial map for Array function")                              \
+  V(kUnexpectedInitialMapForInternalArrayFunction,                            \
+    "Unexpected initial map for InternalArray function")                      \
+  V(kUnexpectedLevelAfterReturnFromApiCall,                                   \
+    "Unexpected level after return from api call")                            \
+  V(kUnexpectedNumberOfPreAllocatedPropertyFields,                            \
+    "Unexpected number of pre-allocated property fields")                     \
+  V(kUnexpectedStringFunction, "Unexpected String function")                  \
+  V(kUnexpectedStringType, "Unexpected string type")                          \
+  V(kUnexpectedStringWrapperInstanceSize,                                     \
+    "Unexpected string wrapper instance size")                                \
+  V(kUnexpectedTypeForRegExpDataFixedArrayExpected,                           \
+    "Unexpected type for RegExp data, FixedArray expected")                   \
+  V(kUnexpectedUnusedPropertiesOfStringWrapper,                               \
+    "Unexpected unused properties of string wrapper")                         \
+  V(kUninitializedKSmiConstantRegister, "Uninitialized kSmiConstantRegister") \
+  V(kUnknown, "unknown")                                                      \
+  V(kUnsupportedConstCompoundAssignment,                                      \
+    "unsupported const compound assignment")                                  \
+  V(kUnsupportedCountOperationWithConst,                                      \
+    "unsupported count operation with const")                                 \
+  V(kUnsupportedDoubleImmediate, "unsupported double immediate")              \
+  V(kUnsupportedLetCompoundAssignment, "unsupported let compound assignment") \
+  V(kUnsupportedLookupSlotInDeclaration,                                      \
+    "unsupported lookup slot in declaration")                                 \
+  V(kUnsupportedNonPrimitiveCompare, "Unsupported non-primitive compare")     \
+  V(kUnsupportedPhiUseOfArguments, "Unsupported phi use of arguments")        \
+  V(kUnsupportedPhiUseOfConstVariable,                                        \
+    "Unsupported phi use of const variable")                                  \
+  V(kUnsupportedTaggedImmediate, "unsupported tagged immediate")              \
+  V(kVariableResolvedToWithContext, "Variable resolved to with context")      \
+  V(kWeShouldNotHaveAnEmptyLexicalContext,                                    \
+    "we should not have an empty lexical context")                            \
+  V(kWithStatement, "WithStatement")                                          \
+  V(kWrongAddressOrValuePassedToRecordWrite,                                  \
+    "Wrong address or value passed to RecordWrite")
+
+
+#define ERROR_MESSAGES_CONSTANTS(C, T) C,
+enum BailoutReason {
+  ERROR_MESSAGES_LIST(ERROR_MESSAGES_CONSTANTS)
+  kLastErrorMessage
+};
+#undef ERROR_MESSAGES_CONSTANTS
+
+
+const char* GetBailoutReason(BailoutReason reason);
 
 
 // Object is the abstract superclass for all classes in the
@@ -1644,6 +1926,12 @@ class JSReceiver: public HeapObject {
     CERTAINLY_NOT_STORE_FROM_KEYED
   };
 
+  // Indicates whether a value can be loaded as a constant.
+  enum StoreMode {
+    ALLOW_AS_CONSTANT,
+    FORCE_FIELD
+  };
+
   // Internal properties (e.g. the hidden properties dictionary) might
   // be added even though the receiver is non-extensible.
   enum ExtensibilityCheck {
@@ -1871,14 +2159,16 @@ class JSObject: public JSReceiver {
       Object* value,
       PropertyAttributes attributes,
       StrictModeFlag strict_mode,
-      ExtensibilityCheck extensibility_check);
+      ExtensibilityCheck extensibility_check,
+      StoreMode mode = ALLOW_AS_CONSTANT);
 
   static Handle<Object> SetLocalPropertyIgnoreAttributes(
       Handle<JSObject> object,
       Handle<Name> key,
       Handle<Object> value,
       PropertyAttributes attributes,
-      ValueType value_type = OPTIMAL_REPRESENTATION);
+      ValueType value_type = OPTIMAL_REPRESENTATION,
+      StoreMode mode = ALLOW_AS_CONSTANT);
 
   static inline Handle<String> ExpectedTransitionKey(Handle<Map> map);
   static inline Handle<Map> ExpectedTransitionTarget(Handle<Map> map);
@@ -1906,7 +2196,8 @@ class JSObject: public JSReceiver {
       Name* key,
       Object* value,
       PropertyAttributes attributes,
-      ValueType value_type = OPTIMAL_REPRESENTATION);
+      ValueType value_type = OPTIMAL_REPRESENTATION,
+      StoreMode mode = ALLOW_AS_CONSTANT);
 
   // Retrieve a value in a normalized object given a lookup result.
   // Handles the special representation of JS global objects.
@@ -2205,9 +2496,9 @@ class JSObject: public JSReceiver {
   // normal property is added instead, with a map transition.
   // This avoids the creation of many maps with the same constant
   // function, all orphaned.
-  MUST_USE_RESULT MaybeObject* AddConstantFunctionProperty(
+  MUST_USE_RESULT MaybeObject* AddConstantProperty(
       Name* name,
-      JSFunction* function,
+      Object* constant,
       PropertyAttributes attributes);
 
   MUST_USE_RESULT MaybeObject* ReplaceSlowProperty(
@@ -2272,7 +2563,8 @@ class JSObject: public JSReceiver {
       StrictModeFlag strict_mode,
       StoreFromKeyed store_mode = MAY_BE_STORE_FROM_KEYED,
       ExtensibilityCheck extensibility_check = PERFORM_EXTENSIBILITY_CHECK,
-      ValueType value_type = OPTIMAL_REPRESENTATION);
+      ValueType value_type = OPTIMAL_REPRESENTATION,
+      StoreMode mode = ALLOW_AS_CONSTANT);
 
   // Convert the object to use the canonical dictionary
   // representation. If the object is expected to have additional properties
@@ -2863,7 +3155,7 @@ class DescriptorArray: public FixedArray {
   inline PropertyDetails GetDetails(int descriptor_number);
   inline PropertyType GetType(int descriptor_number);
   inline int GetFieldIndex(int descriptor_number);
-  inline JSFunction* GetConstantFunction(int descriptor_number);
+  inline Object* GetConstant(int descriptor_number);
   inline Object* GetCallbacksObject(int descriptor_number);
   inline AccessorDescriptor* GetCallbacks(int descriptor_number);
 
@@ -4491,7 +4783,6 @@ class Code: public HeapObject {
   V(KEYED_CALL_IC)      \
   V(STORE_IC)           \
   V(KEYED_STORE_IC)     \
-  V(UNARY_OP_IC)        \
   V(BINARY_OP_IC)       \
   V(COMPARE_IC)         \
   V(COMPARE_NIL_IC)     \
@@ -4518,7 +4809,7 @@ class Code: public HeapObject {
   enum StubType {
     NORMAL,
     FIELD,
-    CONSTANT_FUNCTION,
+    CONSTANT,
     CALLBACKS,
     INTERCEPTOR,
     MAP_TRANSITION,
@@ -4561,7 +4852,7 @@ class Code: public HeapObject {
 
   // [type_feedback_info]: Struct containing type feedback information for
   // unoptimized code. Optimized code can temporarily store the head of
-  // the list of the dependent optimized functions during deoptimization.
+  // the list of code to be deoptimized during mark-compact GC.
   // STUBs can use this slot to store arbitrary information as a Smi.
   // Will contain either a TypeFeedbackInfo object, or JSFunction object,
   // or undefined, or a Smi.
@@ -4569,8 +4860,11 @@ class Code: public HeapObject {
   inline void InitializeTypeFeedbackInfoNoWriteBarrier(Object* value);
   inline int stub_info();
   inline void set_stub_info(int info);
-  inline Object* deoptimizing_functions();
-  inline void set_deoptimizing_functions(Object* value);
+
+  // Used during GC to code a list of code objects to deoptimize.
+  inline Object* code_to_deoptimize_link();
+  inline void set_code_to_deoptimize_link(Object* value);
+  inline Object** code_to_deoptimize_link_slot();
 
   // [gc_metadata]: Field used to hold GC related metadata. The contents of this
   // field does not have to be traced during garbage collection since
@@ -4607,8 +4901,7 @@ class Code: public HeapObject {
     // TODO(danno): This is a bit of a hack right now since there are still
     // clients of this API that pass "extra" values in for argc. These clients
     // should be retrofitted to used ExtendedExtraICState.
-    return kind == COMPARE_NIL_IC || kind == TO_BOOLEAN_IC ||
-           kind == UNARY_OP_IC;
+    return kind == COMPARE_NIL_IC || kind == TO_BOOLEAN_IC;
   }
 
   inline StubType type();  // Only valid for monomorphic IC stubs.
@@ -4623,7 +4916,6 @@ class Code: public HeapObject {
   inline bool is_keyed_store_stub() { return kind() == KEYED_STORE_IC; }
   inline bool is_call_stub() { return kind() == CALL_IC; }
   inline bool is_keyed_call_stub() { return kind() == KEYED_CALL_IC; }
-  inline bool is_unary_op_stub() { return kind() == UNARY_OP_IC; }
   inline bool is_binary_op_stub() { return kind() == BINARY_OP_IC; }
   inline bool is_compare_ic_stub() { return kind() == COMPARE_IC; }
   inline bool is_compare_nil_ic_stub() { return kind() == COMPARE_NIL_IC; }
@@ -4696,10 +4988,6 @@ class Code: public HeapObject {
   // receiver is valid for the given call.
   inline CheckType check_type();
   inline void set_check_type(CheckType value);
-
-  // [type-recording unary op type]: For kind UNARY_OP_IC.
-  inline byte unary_op_type();
-  inline void set_unary_op_type(byte value);
 
   // [to_boolean_foo]: For kind TO_BOOLEAN_IC tells what state the stub is in.
   inline byte to_boolean_state();
@@ -4939,9 +5227,6 @@ class Code: public HeapObject {
   // KindSpecificFlags1 layout (STUB and OPTIMIZED_FUNCTION)
   static const int kStackSlotsFirstBit = 0;
   static const int kStackSlotsBitCount = 24;
-  static const int kUnaryOpTypeFirstBit =
-      kStackSlotsFirstBit + kStackSlotsBitCount;
-  static const int kUnaryOpTypeBitCount = 3;
   static const int kHasFunctionCacheFirstBit =
       kStackSlotsFirstBit + kStackSlotsBitCount;
   static const int kHasFunctionCacheBitCount = 1;
@@ -4950,15 +5235,12 @@ class Code: public HeapObject {
   static const int kMarkedForDeoptimizationBitCount = 1;
 
   STATIC_ASSERT(kStackSlotsFirstBit + kStackSlotsBitCount <= 32);
-  STATIC_ASSERT(kUnaryOpTypeFirstBit + kUnaryOpTypeBitCount <= 32);
   STATIC_ASSERT(kHasFunctionCacheFirstBit + kHasFunctionCacheBitCount <= 32);
   STATIC_ASSERT(kMarkedForDeoptimizationFirstBit +
                 kMarkedForDeoptimizationBitCount <= 32);
 
   class StackSlotsField: public BitField<int,
       kStackSlotsFirstBit, kStackSlotsBitCount> {};  // NOLINT
-  class UnaryOpTypeField: public BitField<int,
-      kUnaryOpTypeFirstBit, kUnaryOpTypeBitCount> {};  // NOLINT
   class HasFunctionCacheField: public BitField<bool,
       kHasFunctionCacheFirstBit, kHasFunctionCacheBitCount> {};  // NOLINT
   class MarkedForDeoptimizationField: public BitField<bool,
@@ -5163,8 +5445,8 @@ class Map: public HeapObject {
   inline void set_bit_field2(byte value);
 
   // Bit field 3.
-  inline int bit_field3();
-  inline void set_bit_field3(int value);
+  inline uint32_t bit_field3();
+  inline void set_bit_field3(uint32_t bits);
 
   class EnumLengthBits:             public BitField<int,   0, 11> {};
   class NumberOfOwnDescriptorsBits: public BitField<int,  11, 11> {};
@@ -5175,6 +5457,8 @@ class Map: public HeapObject {
   class IsObserved:                 public BitField<bool, 26,  1> {};
   class Deprecated:                 public BitField<bool, 27,  1> {};
   class IsFrozen:                   public BitField<bool, 28,  1> {};
+  class IsUnstable:                 public BitField<bool, 29,  1> {};
+  class IsMigrationTarget:          public BitField<bool, 30,  1> {};
 
   // Tells whether the object in the prototype property will be used
   // for instances created from this function.  If the prototype
@@ -5479,6 +5763,10 @@ class Map: public HeapObject {
   inline void set_is_observed(bool is_observed);
   inline void freeze();
   inline bool is_frozen();
+  inline void mark_unstable();
+  inline bool is_stable();
+  inline void set_migration_target(bool value);
+  inline bool is_migration_target();
   inline void deprecate();
   inline bool is_deprecated();
   inline bool CanBeDeprecated();
@@ -5625,7 +5913,7 @@ class Map: public HeapObject {
   // the descriptor array.
   inline void NotifyLeafMapLayoutChange();
 
-  inline bool CanOmitPrototypeChecks();
+  inline bool CanOmitMapChecks();
 
   void AddDependentCompilationInfo(DependentCode::DependencyGroup group,
                                    CompilationInfo* info);
@@ -5641,7 +5929,7 @@ class Map: public HeapObject {
 
 #ifdef VERIFY_HEAP
   void SharedMapVerify();
-  void VerifyOmittedPrototypeChecks();
+  void VerifyOmittedMapChecks();
 #endif
 
   inline int visitor_id();
@@ -5835,12 +6123,6 @@ class Script: public Struct {
   // [type]: the script type.
   DECL_ACCESSORS(type, Smi)
 
-  // [compilation]: how the the script was compiled.
-  DECL_ACCESSORS(compilation_type, Smi)
-
-  // [is_compiled]: determines whether the script has already been compiled.
-  DECL_ACCESSORS(compilation_state, Smi)
-
   // [line_ends]: FixedArray of line ends positions.
   DECL_ACCESSORS(line_ends, Object)
 
@@ -5851,6 +6133,25 @@ class Script: public Struct {
   // [eval_from_instructions_offset]: the instruction offset in the code for the
   // function from which eval was called where eval was called.
   DECL_ACCESSORS(eval_from_instructions_offset, Smi)
+
+  // [flags]: Holds an exciting bitfield.
+  DECL_ACCESSORS(flags, Smi)
+
+  // [compilation_type]: how the the script was compiled. Encoded in the
+  // 'flags' field.
+  inline CompilationType compilation_type();
+  inline void set_compilation_type(CompilationType type);
+
+  // [compilation_state]: determines whether the script has already been
+  // compiled. Encoded in the 'flags' field.
+  inline CompilationState compilation_state();
+  inline void set_compilation_state(CompilationState state);
+
+  // [is_shared_cross_origin]: An opaque boolean set by the embedder via
+  // ScriptOrigin, and used by the embedder to make decisions about the
+  // script's level of privilege. V8 just passes this through. Encoded in
+  // the 'flags' field.
+  DECL_BOOLEAN_ACCESSORS(is_shared_cross_origin)
 
   static inline Script* cast(Object* obj);
 
@@ -5870,17 +6171,21 @@ class Script: public Struct {
   static const int kContextOffset = kDataOffset + kPointerSize;
   static const int kWrapperOffset = kContextOffset + kPointerSize;
   static const int kTypeOffset = kWrapperOffset + kPointerSize;
-  static const int kCompilationTypeOffset = kTypeOffset + kPointerSize;
-  static const int kCompilationStateOffset =
-      kCompilationTypeOffset + kPointerSize;
-  static const int kLineEndsOffset = kCompilationStateOffset + kPointerSize;
+  static const int kLineEndsOffset = kTypeOffset + kPointerSize;
   static const int kIdOffset = kLineEndsOffset + kPointerSize;
   static const int kEvalFromSharedOffset = kIdOffset + kPointerSize;
   static const int kEvalFrominstructionsOffsetOffset =
       kEvalFromSharedOffset + kPointerSize;
-  static const int kSize = kEvalFrominstructionsOffsetOffset + kPointerSize;
+  static const int kFlagsOffset =
+      kEvalFrominstructionsOffsetOffset + kPointerSize;
+  static const int kSize = kFlagsOffset + kPointerSize;
 
  private:
+  // Bit positions in the flags field.
+  static const int kCompilationTypeBit = 0;
+  static const int kCompilationStateBit = 1;
+  static const int kIsSharedCrossOriginBit = 2;
+
   DISALLOW_IMPLICIT_CONSTRUCTORS(Script);
 };
 
@@ -6271,7 +6576,7 @@ class SharedFunctionInfo: public HeapObject {
 
   // Disable (further) attempted optimization of all functions sharing this
   // shared function info.
-  void DisableOptimization(const char* reason);
+  void DisableOptimization(BailoutReason reason);
 
   // Lookup the bailout ID and ASSERT that it exists in the non-optimized
   // code, returns whether it asserted (i.e., always true if assertions are
@@ -6760,18 +7065,6 @@ class JSFunction: public JSObject {
 
   // Retrieve the native context from a function's literal array.
   static Context* NativeContextFromLiterals(FixedArray* literals);
-
-#ifdef DEBUG
-  bool FunctionsInFunctionListShareSameCode() {
-    Object* current = this;
-    while (!current->IsUndefined()) {
-      JSFunction* function = JSFunction::cast(current);
-      current = function->next_function_link();
-      if (function->code() != this->code()) return false;
-    }
-    return true;
-  }
-#endif
 
   bool PassesHydrogenFilter();
 
@@ -9765,6 +10058,7 @@ class BreakPointInfo: public Struct {
   V(kHandleScope, "handlescope", "(Handle scope)")                      \
   V(kBuiltins, "builtins", "(Builtins)")                                \
   V(kGlobalHandles, "globalhandles", "(Global handles)")                \
+  V(kEternalHandles, "eternalhandles", "(Eternal handles)")             \
   V(kThreadManager, "threadmanager", "(Thread manager)")                \
   V(kExtensions, "Extensions", "(Extensions)")
 

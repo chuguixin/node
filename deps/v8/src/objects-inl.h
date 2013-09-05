@@ -2352,8 +2352,8 @@ int DescriptorArray::GetFieldIndex(int descriptor_number) {
 }
 
 
-JSFunction* DescriptorArray::GetConstantFunction(int descriptor_number) {
-  return JSFunction::cast(GetValue(descriptor_number));
+Object* DescriptorArray::GetConstant(int descriptor_number) {
+  return GetValue(descriptor_number);
 }
 
 
@@ -3563,6 +3563,7 @@ bool Map::is_shared() {
 
 
 void Map::set_dictionary_map(bool value) {
+  if (value) mark_unstable();
   set_bit_field3(DictionaryMap::update(bit_field3(), value));
 }
 
@@ -3616,6 +3617,17 @@ bool Map::is_deprecated() {
 }
 
 
+void Map::set_migration_target(bool value) {
+  set_bit_field3(IsMigrationTarget::update(bit_field3(), value));
+}
+
+
+bool Map::is_migration_target() {
+  if (!FLAG_track_fields) return false;
+  return IsMigrationTarget::decode(bit_field3());
+}
+
+
 void Map::freeze() {
   set_bit_field3(IsFrozen::update(bit_field3(), true));
 }
@@ -3623,6 +3635,16 @@ void Map::freeze() {
 
 bool Map::is_frozen() {
   return IsFrozen::decode(bit_field3());
+}
+
+
+void Map::mark_unstable() {
+  set_bit_field3(IsUnstable::update(bit_field3(), true));
+}
+
+
+bool Map::is_stable() {
+  return !IsUnstable::decode(bit_field3());
 }
 
 
@@ -3648,7 +3670,7 @@ bool Map::CanBeDeprecated() {
         details.representation().IsHeapObject()) {
       return true;
     }
-    if (FLAG_track_fields && details.type() == CONSTANT_FUNCTION) {
+    if (FLAG_track_fields && details.type() == CONSTANT) {
       return true;
     }
   }
@@ -3657,15 +3679,17 @@ bool Map::CanBeDeprecated() {
 
 
 void Map::NotifyLeafMapLayoutChange() {
-  dependent_code()->DeoptimizeDependentCodeGroup(
-      GetIsolate(),
-      DependentCode::kPrototypeCheckGroup);
+  if (is_stable()) {
+    mark_unstable();
+    dependent_code()->DeoptimizeDependentCodeGroup(
+        GetIsolate(),
+        DependentCode::kPrototypeCheckGroup);
+  }
 }
 
 
-bool Map::CanOmitPrototypeChecks() {
-  return !HasTransitionArray() && !is_dictionary_map() &&
-         FLAG_omit_prototype_checks_for_leaf_maps;
+bool Map::CanOmitMapChecks() {
+  return is_stable() && FLAG_omit_map_checks_for_leaf_maps;
 }
 
 
@@ -3798,7 +3822,6 @@ inline void Code::set_is_crankshafted(bool value) {
 
 int Code::major_key() {
   ASSERT(kind() == STUB ||
-         kind() == UNARY_OP_IC ||
          kind() == BINARY_OP_IC ||
          kind() == COMPARE_IC ||
          kind() == COMPARE_NIL_IC ||
@@ -3813,7 +3836,6 @@ int Code::major_key() {
 
 void Code::set_major_key(int major) {
   ASSERT(kind() == STUB ||
-         kind() == UNARY_OP_IC ||
          kind() == BINARY_OP_IC ||
          kind() == COMPARE_IC ||
          kind() == COMPARE_NIL_IC ||
@@ -4003,21 +4025,6 @@ void Code::set_check_type(CheckType value) {
 }
 
 
-byte Code::unary_op_type() {
-  ASSERT(is_unary_op_stub());
-  return UnaryOpTypeField::decode(
-      READ_UINT32_FIELD(this, kKindSpecificFlags1Offset));
-}
-
-
-void Code::set_unary_op_type(byte value) {
-  ASSERT(is_unary_op_stub());
-  int previous = READ_UINT32_FIELD(this, kKindSpecificFlags1Offset);
-  int updated = UnaryOpTypeField::update(previous, value);
-  WRITE_UINT32_FIELD(this, kKindSpecificFlags1Offset, updated);
-}
-
-
 byte Code::to_boolean_state() {
   return extended_extra_ic_state();
 }
@@ -4202,7 +4209,20 @@ void Map::InitializeDescriptors(DescriptorArray* descriptors) {
 
 
 ACCESSORS(Map, instance_descriptors, DescriptorArray, kDescriptorsOffset)
-SMI_ACCESSORS(Map, bit_field3, kBitField3Offset)
+
+
+void Map::set_bit_field3(uint32_t bits) {
+  // Ensure the upper 2 bits have the same value by sign extending it. This is
+  // necessary to be able to use the 31st bit.
+  int value = bits << 1;
+  WRITE_FIELD(this, kBitField3Offset, Smi::FromInt(value >> 1));
+}
+
+
+uint32_t Map::bit_field3() {
+  Object* value = READ_FIELD(this, kBitField3Offset);
+  return Smi::cast(value)->value();
+}
 
 
 void Map::ClearTransitions(Heap* heap, WriteBarrierMode mode) {
@@ -4251,7 +4271,8 @@ bool Map::HasTransitionArray() {
 
 
 Map* Map::elements_transition_map() {
-  return transitions()->elements_transition();
+  int index = transitions()->Search(GetHeap()->elements_transition_symbol());
+  return transitions()->GetTarget(index);
 }
 
 
@@ -4282,10 +4303,14 @@ Map* Map::GetTransition(int transition_index) {
 
 
 MaybeObject* Map::set_elements_transition_map(Map* transitioned_map) {
-  MaybeObject* allow_elements = EnsureHasTransitionArray(this);
-  if (allow_elements->IsFailure()) return allow_elements;
-  transitions()->set_elements_transition(transitioned_map);
-  return this;
+  TransitionArray* transitions;
+  MaybeObject* maybe_transitions = AddTransition(
+      GetHeap()->elements_transition_symbol(),
+      transitioned_map,
+      FULL_TRANSITION);
+  if (!maybe_transitions->To(&transitions)) return maybe_transitions;
+  set_transitions(transitions);
+  return transitions;
 }
 
 
@@ -4476,12 +4501,30 @@ ACCESSORS(Script, data, Object, kDataOffset)
 ACCESSORS(Script, context_data, Object, kContextOffset)
 ACCESSORS(Script, wrapper, Foreign, kWrapperOffset)
 ACCESSORS_TO_SMI(Script, type, kTypeOffset)
-ACCESSORS_TO_SMI(Script, compilation_type, kCompilationTypeOffset)
-ACCESSORS_TO_SMI(Script, compilation_state, kCompilationStateOffset)
 ACCESSORS(Script, line_ends, Object, kLineEndsOffset)
 ACCESSORS(Script, eval_from_shared, Object, kEvalFromSharedOffset)
 ACCESSORS_TO_SMI(Script, eval_from_instructions_offset,
                  kEvalFrominstructionsOffsetOffset)
+ACCESSORS_TO_SMI(Script, flags, kFlagsOffset)
+BOOL_ACCESSORS(Script, flags, is_shared_cross_origin, kIsSharedCrossOriginBit)
+
+Script::CompilationType Script::compilation_type() {
+  return BooleanBit::get(flags(), kCompilationTypeBit) ?
+      COMPILATION_TYPE_EVAL : COMPILATION_TYPE_HOST;
+}
+void Script::set_compilation_type(CompilationType type) {
+  set_flags(BooleanBit::set(flags(), kCompilationTypeBit,
+      type == COMPILATION_TYPE_EVAL));
+}
+Script::CompilationState Script::compilation_state() {
+  return BooleanBit::get(flags(), kCompilationStateBit) ?
+      COMPILATION_STATE_COMPILED : COMPILATION_STATE_INITIAL;
+}
+void Script::set_compilation_state(CompilationState state) {
+  set_flags(BooleanBit::set(flags(), kCompilationStateBit,
+      state == COMPILATION_STATE_COMPILED));
+}
+
 
 #ifdef ENABLE_DEBUGGER_SUPPORT
 ACCESSORS(DebugInfo, shared, SharedFunctionInfo, kSharedFunctionInfoIndex)
@@ -5233,15 +5276,22 @@ void Code::set_stub_info(int value) {
 }
 
 
-void Code::set_deoptimizing_functions(Object* value) {
+Object* Code::code_to_deoptimize_link() {
+  // Optimized code should not have type feedback.
+  ASSERT(kind() == OPTIMIZED_FUNCTION);
+  return READ_FIELD(this, kTypeFeedbackInfoOffset);
+}
+
+
+void Code::set_code_to_deoptimize_link(Object* value) {
   ASSERT(kind() == OPTIMIZED_FUNCTION);
   WRITE_FIELD(this, kTypeFeedbackInfoOffset, value);
 }
 
 
-Object* Code::deoptimizing_functions() {
+Object** Code::code_to_deoptimize_link_slot() {
   ASSERT(kind() == OPTIMIZED_FUNCTION);
-  return Object::cast(READ_FIELD(this, kTypeFeedbackInfoOffset));
+  return HeapObject::RawField(this, kTypeFeedbackInfoOffset);
 }
 
 

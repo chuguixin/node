@@ -19,8 +19,8 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#ifndef NODE_STAT_WATCHER_H_
-#define NODE_STAT_WATCHER_H_
+#ifndef SRC_NODE_STAT_WATCHER_H_
+#define SRC_NODE_STAT_WATCHER_H_
 
 #include "node.h"
 #include "uv.h"
@@ -32,8 +32,6 @@ class StatWatcher : ObjectWrap {
   static void Initialize(v8::Handle<v8::Object> target);
 
  protected:
-  static v8::Persistent<v8::FunctionTemplate> constructor_template;
-
   StatWatcher();
   virtual ~StatWatcher();
 
@@ -52,4 +50,4 @@ class StatWatcher : ObjectWrap {
 };
 
 }  // namespace node
-#endif  // NODE_STAT_WATCHER_H_
+#endif  // SRC_NODE_STAT_WATCHER_H_

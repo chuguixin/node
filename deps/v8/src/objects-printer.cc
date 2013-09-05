@@ -37,9 +37,6 @@ namespace internal {
 
 #ifdef OBJECT_PRINT
 
-static const char* TypeToString(InstanceType type);
-
-
 void MaybeObject::Print() {
   Print(stdout);
 }
@@ -180,6 +177,12 @@ void HeapObject::HeapObjectPrint(FILE* out) {
     case JS_FUNCTION_PROXY_TYPE:
       JSFunctionProxy::cast(this)->JSFunctionProxyPrint(out);
       break;
+    case JS_SET_TYPE:
+      JSSet::cast(this)->JSSetPrint(out);
+      break;
+    case JS_MAP_TYPE:
+      JSMap::cast(this)->JSMapPrint(out);
+      break;
     case JS_WEAK_MAP_TYPE:
       JSWeakMap::cast(this)->JSWeakMapPrint(out);
       break;
@@ -294,9 +297,9 @@ void JSObject::PrintProperties(FILE* out) {
           PrintF(out, " (field at offset %d)\n", index);
           break;
         }
-        case CONSTANT_FUNCTION:
-          descs->GetConstantFunction(i)->ShortPrint(out);
-          PrintF(out, " (constant function)\n");
+        case CONSTANT:
+          descs->GetConstant(i)->ShortPrint(out);
+          PrintF(out, " (constant)\n");
           break;
         case CALLBACKS:
           descs->GetCallbacksObject(i)->ShortPrint(out);
@@ -450,8 +453,8 @@ void JSObject::PrintTransitions(FILE* out) {
         PrintF(out, " (transition to field)\n");
         break;
       }
-      case CONSTANT_FUNCTION:
-        PrintF(out, " (transition to constant function)\n");
+      case CONSTANT:
+        PrintF(out, " (transition to constant)\n");
         break;
       case CALLBACKS:
         PrintF(out, " (transition to callback)\n");
@@ -488,7 +491,7 @@ void JSObject::JSObjectPrint(FILE* out) {
 
 void JSModule::JSModulePrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSModule");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - context = ");
   context()->Print(out);
   PrintF(out, " - scope_info = ");
@@ -503,81 +506,12 @@ void JSModule::JSModulePrint(FILE* out) {
 
 static const char* TypeToString(InstanceType type) {
   switch (type) {
-    case INVALID_TYPE: return "INVALID";
-    case MAP_TYPE: return "MAP";
-    case HEAP_NUMBER_TYPE: return "HEAP_NUMBER";
-    case SYMBOL_TYPE: return "SYMBOL";
-    case STRING_TYPE: return "TWO_BYTE_STRING";
-    case ASCII_STRING_TYPE: return "ASCII_STRING";
-    case CONS_STRING_TYPE:
-    case CONS_ASCII_STRING_TYPE:
-      return "CONS_STRING";
-    case EXTERNAL_STRING_TYPE:
-    case EXTERNAL_ASCII_STRING_TYPE:
-    case EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
-      return "EXTERNAL_STRING";
-    case SHORT_EXTERNAL_STRING_TYPE:
-    case SHORT_EXTERNAL_ASCII_STRING_TYPE:
-    case SHORT_EXTERNAL_STRING_WITH_ONE_BYTE_DATA_TYPE:
-      return "SHORT_EXTERNAL_STRING";
-    case INTERNALIZED_STRING_TYPE: return "INTERNALIZED_STRING";
-    case ASCII_INTERNALIZED_STRING_TYPE: return "ASCII_INTERNALIZED_STRING";
-    case CONS_INTERNALIZED_STRING_TYPE: return "CONS_INTERNALIZED_STRING";
-    case CONS_ASCII_INTERNALIZED_STRING_TYPE:
-      return "CONS_ASCII_INTERNALIZED_STRING";
-    case EXTERNAL_INTERNALIZED_STRING_TYPE:
-    case EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
-    case EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
-      return "EXTERNAL_INTERNALIZED_STRING";
-    case SHORT_EXTERNAL_INTERNALIZED_STRING_TYPE:
-    case SHORT_EXTERNAL_ASCII_INTERNALIZED_STRING_TYPE:
-    case SHORT_EXTERNAL_INTERNALIZED_STRING_WITH_ONE_BYTE_DATA_TYPE:
-      return "SHORT_EXTERNAL_INTERNALIZED_STRING";
-    case FIXED_ARRAY_TYPE: return "FIXED_ARRAY";
-    case BYTE_ARRAY_TYPE: return "BYTE_ARRAY";
-    case FREE_SPACE_TYPE: return "FREE_SPACE";
-    case EXTERNAL_PIXEL_ARRAY_TYPE: return "EXTERNAL_PIXEL_ARRAY";
-    case EXTERNAL_BYTE_ARRAY_TYPE: return "EXTERNAL_BYTE_ARRAY";
-    case EXTERNAL_UNSIGNED_BYTE_ARRAY_TYPE:
-      return "EXTERNAL_UNSIGNED_BYTE_ARRAY";
-    case EXTERNAL_SHORT_ARRAY_TYPE: return "EXTERNAL_SHORT_ARRAY";
-    case EXTERNAL_UNSIGNED_SHORT_ARRAY_TYPE:
-      return "EXTERNAL_UNSIGNED_SHORT_ARRAY";
-    case EXTERNAL_INT_ARRAY_TYPE: return "EXTERNAL_INT_ARRAY";
-    case EXTERNAL_UNSIGNED_INT_ARRAY_TYPE:
-      return "EXTERNAL_UNSIGNED_INT_ARRAY";
-    case EXTERNAL_FLOAT_ARRAY_TYPE: return "EXTERNAL_FLOAT_ARRAY";
-    case EXTERNAL_DOUBLE_ARRAY_TYPE: return "EXTERNAL_DOUBLE_ARRAY";
-    case FILLER_TYPE: return "FILLER";
-    case JS_OBJECT_TYPE: return "JS_OBJECT";
-    case JS_CONTEXT_EXTENSION_OBJECT_TYPE: return "JS_CONTEXT_EXTENSION_OBJECT";
-    case ODDBALL_TYPE: return "ODDBALL";
-    case CELL_TYPE: return "CELL";
-    case PROPERTY_CELL_TYPE: return "PROPERTY_CELL";
-    case SHARED_FUNCTION_INFO_TYPE: return "SHARED_FUNCTION_INFO";
-    case JS_GENERATOR_OBJECT_TYPE: return "JS_GENERATOR_OBJECT";
-    case JS_MODULE_TYPE: return "JS_MODULE";
-    case JS_FUNCTION_TYPE: return "JS_FUNCTION";
-    case CODE_TYPE: return "CODE";
-    case JS_ARRAY_TYPE: return "JS_ARRAY";
-    case JS_PROXY_TYPE: return "JS_PROXY";
-    case JS_WEAK_MAP_TYPE: return "JS_WEAK_MAP";
-    case JS_WEAK_SET_TYPE: return "JS_WEAK_SET";
-    case JS_REGEXP_TYPE: return "JS_REGEXP";
-    case JS_VALUE_TYPE: return "JS_VALUE";
-    case JS_GLOBAL_OBJECT_TYPE: return "JS_GLOBAL_OBJECT";
-    case JS_BUILTINS_OBJECT_TYPE: return "JS_BUILTINS_OBJECT";
-    case JS_GLOBAL_PROXY_TYPE: return "JS_GLOBAL_PROXY";
-    case JS_ARRAY_BUFFER_TYPE: return "JS_ARRAY_BUFFER";
-    case JS_TYPED_ARRAY_TYPE: return "JS_TYPED_ARRAY";
-    case JS_DATA_VIEW_TYPE: return "JS_DATA_VIEW";
-    case FOREIGN_TYPE: return "FOREIGN";
-    case JS_MESSAGE_OBJECT_TYPE: return "JS_MESSAGE_OBJECT_TYPE";
-#define MAKE_STRUCT_CASE(NAME, Name, name) case NAME##_TYPE: return #NAME;
-  STRUCT_LIST(MAKE_STRUCT_CASE)
-#undef MAKE_STRUCT_CASE
-    default: return "UNKNOWN";
+#define TYPE_TO_STRING(TYPE) case TYPE: return #TYPE;
+  INSTANCE_TYPE_LIST(TYPE_TO_STRING)
+#undef TYPE_TO_STRING
   }
+  UNREACHABLE();
+  return "UNKNOWN";  // Keep the compiler happy.
 }
 
 
@@ -777,7 +711,7 @@ static const char* const weekdays[] = {
 
 void JSDate::JSDatePrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSDate");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - value = ");
   value()->Print(out);
   if (!year()->IsSmi()) {
@@ -797,7 +731,7 @@ void JSDate::JSDatePrint(FILE* out) {
 
 void JSProxy::JSProxyPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSProxy");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - handler = ");
   handler()->Print(out);
   PrintF(out, " - hash = ");
@@ -808,7 +742,7 @@ void JSProxy::JSProxyPrint(FILE* out) {
 
 void JSFunctionProxy::JSFunctionProxyPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSFunctionProxy");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - handler = ");
   handler()->Print(out);
   PrintF(out, " - call_trap = ");
@@ -819,9 +753,27 @@ void JSFunctionProxy::JSFunctionProxyPrint(FILE* out) {
 }
 
 
+void JSSet::JSSetPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "JSSet");
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - table = ");
+  table()->ShortPrint(out);
+  PrintF(out, "\n");
+}
+
+
+void JSMap::JSMapPrint(FILE* out) {
+  HeapObject::PrintHeader(out, "JSMap");
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - table = ");
+  table()->ShortPrint(out);
+  PrintF(out, "\n");
+}
+
+
 void JSWeakMap::JSWeakMapPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSWeakMap");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - table = ");
   table()->ShortPrint(out);
   PrintF(out, "\n");
@@ -830,7 +782,7 @@ void JSWeakMap::JSWeakMapPrint(FILE* out) {
 
 void JSWeakSet::JSWeakSetPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSWeakSet");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - table = ");
   table()->ShortPrint(out);
   PrintF(out, "\n");
@@ -839,8 +791,8 @@ void JSWeakSet::JSWeakSetPrint(FILE* out) {
 
 void JSArrayBuffer::JSArrayBufferPrint(FILE* out) {
   HeapObject::PrintHeader(out, "JSArrayBuffer");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
-  PrintF(out, " - backing_store = -0x%p\n", backing_store());
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - backing_store = %p\n", backing_store());
   PrintF(out, " - byte_length = ");
   byte_length()->ShortPrint(out);
   PrintF(out, "\n");
@@ -878,7 +830,7 @@ void JSDataView::JSDataViewPrint(FILE* out) {
 
 void JSFunction::JSFunctionPrint(FILE* out) {
   HeapObject::PrintHeader(out, "Function");
-  PrintF(out, " - map = 0x%p\n", reinterpret_cast<void*>(map()));
+  PrintF(out, " - map = %p\n", reinterpret_cast<void*>(map()));
   PrintF(out, " - initial_map = ");
   if (has_initial_map()) {
     initial_map()->ShortPrint(out);
@@ -1202,8 +1154,7 @@ void Script::ScriptPrint(FILE* out) {
   context_data()->ShortPrint(out);
   PrintF(out, "\n - wrapper: ");
   wrapper()->ShortPrint(out);
-  PrintF(out, "\n - compilation type: ");
-  compilation_type()->ShortPrint(out);
+  PrintF(out, "\n - compilation type: %d", compilation_type());
   PrintF(out, "\n - line ends: ");
   line_ends()->ShortPrint(out);
   PrintF(out, "\n - eval from shared: ");
@@ -1262,8 +1213,8 @@ void TransitionArray::PrintTransitions(FILE* out) {
         PrintF(out, " (transition to field)\n");
         break;
       }
-      case CONSTANT_FUNCTION:
-        PrintF(out, " (transition to constant function)\n");
+      case CONSTANT:
+        PrintF(out, " (transition to constant)\n");
         break;
       case CALLBACKS:
         PrintF(out, " (transition to callback)\n");

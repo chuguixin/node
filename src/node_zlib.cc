@@ -19,17 +19,15 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
-#include "v8.h"
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/types.h>
-
-#include "zlib.h"
 #include "node.h"
 #include "node_buffer.h"
+#include "v8.h"
+#include "zlib.h"
 
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 
 namespace node {
 
@@ -68,21 +66,19 @@ void InitZlib(v8::Handle<v8::Object> target);
 class ZCtx : public ObjectWrap {
  public:
 
-  ZCtx(node_zlib_mode mode)
-    : ObjectWrap()
-    , init_done_(false)
-    , level_(0)
-    , windowBits_(0)
-    , memLevel_(0)
-    , strategy_(0)
-    , err_(0)
-    , dictionary_(NULL)
-    , dictionary_len_(0)
-    , flush_(0)
-    , chunk_size_(0)
-    , write_in_progress_(false)
-    , mode_(mode)
-  {
+  explicit ZCtx(node_zlib_mode mode) : ObjectWrap(),
+                                       init_done_(false),
+                                       level_(0),
+                                       windowBits_(0),
+                                       memLevel_(0),
+                                       strategy_(0),
+                                       err_(0),
+                                       dictionary_(NULL),
+                                       dictionary_len_(0),
+                                       flush_(0),
+                                       chunk_size_(0),
+                                       write_in_progress_(false),
+                                       mode_(mode) {
   }
 
 
@@ -219,17 +215,14 @@ class ZCtx : public ObjectWrap {
 
         // If data was encoded with dictionary
         if (ctx->err_ == Z_NEED_DICT && ctx->dictionary_ != NULL) {
-
           // Load it
           ctx->err_ = inflateSetDictionary(&ctx->strm_,
                                            ctx->dictionary_,
                                            ctx->dictionary_len_);
           if (ctx->err_ == Z_OK) {
-
             // And try to decode again
             ctx->err_ = inflate(&ctx->strm_, ctx->flush_);
           } else if (ctx->err_ == Z_DATA_ERROR) {
-
             // Both inflateSetDictionary() and inflate() return Z_DATA_ERROR.
             // Make it possible for After() to tell a bad dictionary from bad
             // input.
@@ -301,7 +294,7 @@ class ZCtx : public ObjectWrap {
     assert(handle->Get(onerror_sym)->IsFunction() && "Invalid error handler");
     HandleScope scope(node_isolate);
     Local<Value> args[2] = {
-      String::New(msg),
+      OneByteString(node_isolate, msg),
       Number::New(ctx->err_)
     };
     MakeCallback(handle, onerror_sym, ARRAY_SIZE(args), args);
@@ -316,7 +309,7 @@ class ZCtx : public ObjectWrap {
     if (args.Length() < 1 || !args[0]->IsInt32()) {
       return ThrowTypeError("Bad argument");
     }
-    node_zlib_mode mode = (node_zlib_mode) args[0]->Int32Value();
+    node_zlib_mode mode = static_cast<node_zlib_mode>(args[0]->Int32Value());
 
     if (mode < DEFLATE || mode > UNZIP) {
       return ThrowTypeError("Bad argument");
@@ -510,8 +503,8 @@ class ZCtx : public ObjectWrap {
   }
 
  private:
-  static const int kDeflateContextSize = 16384; // approximate
-  static const int kInflateContextSize = 10240; // approximate
+  static const int kDeflateContextSize = 16384;  // approximate
+  static const int kInflateContextSize = 10240;  // approximate
 
   bool init_done_;
 
@@ -550,11 +543,11 @@ void InitZlib(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(z, "params", ZCtx::Params);
   NODE_SET_PROTOTYPE_METHOD(z, "reset", ZCtx::Reset);
 
-  z->SetClassName(String::NewSymbol("Zlib"));
-  target->Set(String::NewSymbol("Zlib"), z->GetFunction());
+  z->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "Zlib"));
+  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "Zlib"), z->GetFunction());
 
-  callback_sym = String::New("callback");
-  onerror_sym = String::New("onerror");
+  callback_sym = FIXED_ONE_BYTE_STRING(node_isolate, "callback");
+  onerror_sym = FIXED_ONE_BYTE_STRING(node_isolate, "onerror");
 
   // valid flush values.
   NODE_DEFINE_CONSTANT(target, Z_NO_FLUSH);
@@ -594,7 +587,8 @@ void InitZlib(Handle<Object> target) {
   NODE_DEFINE_CONSTANT(target, INFLATERAW);
   NODE_DEFINE_CONSTANT(target, UNZIP);
 
-  target->Set(String::NewSymbol("ZLIB_VERSION"), String::New(ZLIB_VERSION));
+  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "ZLIB_VERSION"),
+              FIXED_ONE_BYTE_STRING(node_isolate, ZLIB_VERSION));
 }
 
 }  // namespace node

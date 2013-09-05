@@ -233,16 +233,22 @@ static bool TryRemoveInvalidPrototypeDependentStub(Code* target,
 
   // The stub is not in the cache. We've ruled out all other kinds of failure
   // except for proptotype chain changes, a deprecated map, a map that's
-  // different from the one that the stub expects, or a constant global property
-  // that will become mutable. Threat all those situations as prototype failures
-  // (stay monomorphic if possible).
+  // different from the one that the stub expects, elements kind changes, or a
+  // constant global property that will become mutable. Threat all those
+  // situations as prototype failures (stay monomorphic if possible).
 
   // If the IC is shared between multiple receivers (slow dictionary mode), then
   // the map cannot be deprecated and the stub invalidated.
   if (cache_holder == OWN_MAP) {
     Map* old_map = target->FindFirstMap();
     if (old_map == map) return true;
-    if (old_map != NULL && old_map->is_deprecated()) return true;
+    if (old_map != NULL) {
+      if (old_map->is_deprecated()) return true;
+      if (IsMoreGeneralElementsKindTransition(old_map->elements_kind(),
+                                              map->elements_kind())) {
+        return true;
+      }
+    }
   }
 
   if (receiver->IsGlobalObject()) {
@@ -384,7 +390,6 @@ void IC::Clear(Address address) {
     case Code::KEYED_CALL_IC:  return KeyedCallIC::Clear(address, target);
     case Code::COMPARE_IC: return CompareIC::Clear(address, target);
     case Code::COMPARE_NIL_IC: return CompareNilIC::Clear(address, target);
-    case Code::UNARY_OP_IC:
     case Code::BINARY_OP_IC:
     case Code::TO_BOOLEAN_IC:
       // Clearing these is tricky and does not
@@ -634,7 +639,7 @@ bool CallICBase::TryUpdateExtraICState(LookupResult* lookup,
                                        Handle<Object> object,
                                        Code::ExtraICState* extra_ic_state) {
   ASSERT(kind_ == Code::CALL_IC);
-  if (lookup->type() != CONSTANT_FUNCTION) return false;
+  if (!lookup->IsConstantFunction()) return false;
   JSFunction* function = lookup->GetConstantFunction();
   if (!function->shared()->HasBuiltinFunctionId()) return false;
 
@@ -687,7 +692,8 @@ Handle<Code> CallICBase::ComputeMonomorphicStub(LookupResult* lookup,
       return isolate()->stub_cache()->ComputeCallField(
           argc, kind_, extra_state, name, object, holder, index);
     }
-    case CONSTANT_FUNCTION: {
+    case CONSTANT: {
+      if (!lookup->IsConstantFunction()) return Handle<Code>::null();
       // Get the constant function and compute the code stub for this
       // call; used for rewriting to monomorphic state and making sure
       // that the code stub is in the stub cache.
@@ -1312,8 +1318,11 @@ Handle<Code> LoadIC::ComputeLoadHandler(LookupResult* lookup,
       return isolate()->stub_cache()->ComputeLoadField(
           name, receiver, holder,
           lookup->GetFieldIndex(), lookup->representation());
-    case CONSTANT_FUNCTION: {
-      Handle<JSFunction> constant(lookup->GetConstantFunction());
+    case CONSTANT: {
+      Handle<Object> constant(lookup->GetConstant(), isolate());
+      // TODO(2803): Don't compute a stub for cons strings because they cannot
+      // be embedded into code.
+      if (constant->IsConsString()) return Handle<Code>::null();
       return isolate()->stub_cache()->ComputeLoadConstant(
           name, receiver, holder, constant);
     }
@@ -1522,8 +1531,11 @@ Handle<Code> KeyedLoadIC::ComputeLoadHandler(LookupResult* lookup,
       return isolate()->stub_cache()->ComputeKeyedLoadField(
           name, receiver, holder,
           lookup->GetFieldIndex(), lookup->representation());
-    case CONSTANT_FUNCTION: {
-      Handle<JSFunction> constant(lookup->GetConstantFunction(), isolate());
+    case CONSTANT: {
+      Handle<Object> constant(lookup->GetConstant(), isolate());
+      // TODO(2803): Don't compute a stub for cons strings because they cannot
+      // be embedded into code.
+      if (constant->IsConsString()) return Handle<Code>::null();
       return isolate()->stub_cache()->ComputeKeyedLoadConstant(
           name, receiver, holder, constant);
     }
@@ -1798,7 +1810,7 @@ Handle<Code> StoreIC::ComputeStoreMonomorphic(LookupResult* lookup,
       ASSERT(!receiver->GetNamedInterceptor()->setter()->IsUndefined());
       return isolate()->stub_cache()->ComputeStoreInterceptor(
           name, receiver, strict_mode);
-    case CONSTANT_FUNCTION:
+    case CONSTANT:
       break;
     case TRANSITION: {
       // Explicitly pass in the receiver map since LookupForWrite may have
@@ -2184,7 +2196,7 @@ Handle<Code> KeyedStoreIC::ComputeStoreMonomorphic(LookupResult* lookup,
       // fall through.
     }
     case NORMAL:
-    case CONSTANT_FUNCTION:
+    case CONSTANT:
     case CALLBACKS:
     case INTERCEPTOR:
       // Always rewrite to the generic case so that we do not
@@ -2573,27 +2585,6 @@ void BinaryOpIC::StubInfoToType(int minor_key,
   *left = TypeInfoToType(left_typeinfo, isolate);
   *right = TypeInfoToType(right_typeinfo, isolate);
   *result = TypeInfoToType(result_typeinfo, isolate);
-}
-
-
-MaybeObject* UnaryOpIC::Transition(Handle<Object> object) {
-  Code::ExtraICState extra_ic_state = target()->extended_extra_ic_state();
-  UnaryOpStub stub(extra_ic_state);
-
-  stub.UpdateStatus(object);
-
-  Handle<Code> code = stub.GetCode(isolate());
-  set_target(*code);
-
-  return stub.Result(object, isolate());
-}
-
-
-RUNTIME_FUNCTION(MaybeObject*, UnaryOpIC_Miss) {
-  HandleScope scope(isolate);
-  Handle<Object> object = args.at<Object>(0);
-  UnaryOpIC ic(isolate);
-  return ic.Transition(object);
 }
 
 

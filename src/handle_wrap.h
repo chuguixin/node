@@ -19,10 +19,13 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#ifndef HANDLE_WRAP_H_
-#define HANDLE_WRAP_H_
+#ifndef SRC_HANDLE_WRAP_H_
+#define SRC_HANDLE_WRAP_H_
 
+#include "node.h"
 #include "queue.h"
+#include "uv.h"
+#include "v8.h"
 
 namespace node {
 
@@ -46,34 +49,27 @@ namespace node {
 //   js/c++ boundary crossing. At the javascript layer that should all be
 //   taken care of.
 
-#define UNWRAP_NO_ABORT(type)                                               \
-  assert(!args.This().IsEmpty());                                           \
-  assert(args.This()->InternalFieldCount() > 0);                            \
-  type* wrap = static_cast<type*>(                                          \
-      args.This()->GetAlignedPointerFromInternalField(0));
-
 class HandleWrap {
-public:
-  static void Initialize(v8::Handle<v8::Object> target);
+ public:
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Ref(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Unref(const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  inline uv_handle_t* GetHandle() { return handle__; };
+  inline uv_handle_t* GetHandle() { return handle__; }
 
-protected:
-  HandleWrap(v8::Handle<v8::Object> object, uv_handle_t* handle);
+ protected:
+  explicit HandleWrap(v8::Handle<v8::Object> object, uv_handle_t* handle);
   virtual ~HandleWrap();
 
   inline v8::Local<v8::Object> object() {
-    return v8::Local<v8::Object>::New(node_isolate, persistent());
+    return PersistentToLocal(node_isolate, persistent());
   }
 
   inline v8::Persistent<v8::Object>& persistent() {
     return object_;
   }
 
-private:
+ private:
   friend void GetActiveHandles(const v8::FunctionCallbackInfo<v8::Value>&);
   static void OnClose(uv_handle_t* handle);
   v8::Persistent<v8::Object> object_;
@@ -91,4 +87,4 @@ private:
 }  // namespace node
 
 
-#endif  // HANDLE_WRAP_H_
+#endif  // SRC_HANDLE_WRAP_H_
