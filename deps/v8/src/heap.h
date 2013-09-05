@@ -178,7 +178,7 @@ namespace internal {
   V(Smi, last_script_id, LastScriptId)                                         \
   V(Script, empty_script, EmptyScript)                                         \
   V(Smi, real_stack_limit, RealStackLimit)                                     \
-  V(NameDictionary, intrinsic_function_names, IntrinsicFunctionNames)        \
+  V(NameDictionary, intrinsic_function_names, IntrinsicFunctionNames)          \
   V(Smi, arguments_adaptor_deopt_pc_offset, ArgumentsAdaptorDeoptPCOffset)     \
   V(Smi, construct_stub_deopt_pc_offset, ConstructStubDeoptPCOffset)           \
   V(Smi, getter_stub_deopt_pc_offset, GetterStubDeoptPCOffset)                 \
@@ -186,6 +186,7 @@ namespace internal {
   V(JSObject, observation_state, ObservationState)                             \
   V(Map, external_map, ExternalMap)                                            \
   V(Symbol, frozen_symbol, FrozenSymbol)                                       \
+  V(Symbol, elements_transition_symbol, ElementsTransitionSymbol)              \
   V(SeededNumberDictionary, empty_slow_element_dictionary,                     \
       EmptySlowElementDictionary)                                              \
   V(Symbol, observed_symbol, ObservedSymbol)
@@ -475,45 +476,11 @@ class ExternalStringTable {
 };
 
 
-// The stack property of an error object is implemented as a getter that
-// formats the attached raw stack trace into a string.  This raw stack trace
-// keeps code and function objects alive until the getter is called the first
-// time.  To release those objects, we call the getter after each GC for
-// newly tenured error objects that are kept in a list.
-class ErrorObjectList {
- public:
-  inline void Add(JSObject* object);
-
-  inline void Iterate(ObjectVisitor* v);
-
-  void TearDown();
-
-  void RemoveUnmarked(Heap* heap);
-
-  void DeferredFormatStackTrace(Isolate* isolate);
-
-  void UpdateReferences();
-
-  void UpdateReferencesInNewSpace(Heap* heap);
-
- private:
-  static const int kBudgetPerGC = 16;
-
-  ErrorObjectList() : nested_(false) { }
-
-  friend class Heap;
-
-  List<Object*> list_;
-  bool nested_;
-
-  DISALLOW_COPY_AND_ASSIGN(ErrorObjectList);
-};
-
-
 enum ArrayStorageAllocationMode {
   DONT_INITIALIZE_ARRAY_ELEMENTS,
   INITIALIZE_ARRAY_ELEMENTS_WITH_HOLE
 };
+
 
 class Heap {
  public:
@@ -769,7 +736,7 @@ class Heap {
   // failed.
   // Please note this does not perform a garbage collection.
   MUST_USE_RESULT MaybeObject* AllocateJSObjectFromMap(
-      Map* map, PretenureFlag pretenure = NOT_TENURED);
+      Map* map, PretenureFlag pretenure = NOT_TENURED, bool alloc_props = true);
 
   MUST_USE_RESULT MaybeObject* AllocateJSObjectFromMapWithAllocationSite(
       Map* map, Handle<AllocationSite> allocation_site);
@@ -1287,10 +1254,7 @@ class Heap {
   void EnsureHeapIsIterable();
 
   // Notify the heap that a context has been disposed.
-  int NotifyContextDisposed() {
-    flush_monomorphic_ics_ = true;
-    return ++contexts_disposed_;
-  }
+  int NotifyContextDisposed();
 
   // Utility to invoke the scavenger. This is needed in test code to
   // ensure correct callback for weak global handles.
@@ -1425,7 +1389,7 @@ class Heap {
 
   // Finds out which space an object should get promoted to based on its type.
   inline OldSpace* TargetSpace(HeapObject* object);
-  inline AllocationSpace TargetSpaceId(InstanceType type);
+  static inline AllocationSpace TargetSpaceId(InstanceType type);
 
   // Sets the stub_cache_ (only used when expanding the dictionary).
   void public_set_code_stubs(UnseededNumberDictionary* value) {
@@ -1572,19 +1536,16 @@ class Heap {
   MUST_USE_RESULT MaybeObject* AllocateRawFixedArray(int length,
                                                      PretenureFlag pretenure);
 
-  // Predicate that governs global pre-tenuring decisions based on observed
-  // promotion rates of previous collections.
-  inline bool ShouldGloballyPretenure() {
-    return FLAG_pretenuring && new_space_high_promotion_mode_active_;
-  }
-
   // This is only needed for testing high promotion mode.
   void SetNewSpaceHighPromotionModeActive(bool mode) {
     new_space_high_promotion_mode_active_ = mode;
   }
 
+  // Returns the allocation mode (pre-tenuring) based on observed promotion
+  // rates of previous collections.
   inline PretenureFlag GetPretenureMode() {
-    return new_space_high_promotion_mode_active_ ? TENURED : NOT_TENURED;
+    return FLAG_pretenuring && new_space_high_promotion_mode_active_
+        ? TENURED : NOT_TENURED;
   }
 
   inline Address* NewSpaceHighPromotionModeActiveAddress() {
@@ -1654,6 +1615,8 @@ class Heap {
   // Generated code can embed direct references to non-writable roots if
   // they are in new space.
   static bool RootCanBeWrittenAfterInitialization(RootListIndex root_index);
+  // Generated code can treat direct references to this root as constant.
+  bool RootCanBeTreatedAsConstant(RootListIndex root_index);
 
   MUST_USE_RESULT MaybeObject* NumberToString(
       Object* number, bool check_number_string_cache = true,
@@ -1715,8 +1678,6 @@ class Heap {
   // mark or if we've already filled the bottom 1/16th of the to space,
   // we try to promote this object.
   inline bool ShouldBePromoted(Address old_address, int object_size);
-
-  int MaxObjectSizeInNewSpace() { return kMaxObjectSizeInNewSpace; }
 
   void ClearJSFunctionResultCaches();
 
@@ -1796,10 +1757,6 @@ class Heap {
 
   ExternalStringTable* external_string_table() {
     return &external_string_table_;
-  }
-
-  ErrorObjectList* error_object_list() {
-    return &error_object_list_;
   }
 
   // Returns the current sweep generation.
@@ -1965,12 +1922,6 @@ class Heap {
   bool flush_monomorphic_ics_;
 
   int scan_on_scavenge_pages_;
-
-#if V8_TARGET_ARCH_X64
-  static const int kMaxObjectSizeInNewSpace = 1024*KB;
-#else
-  static const int kMaxObjectSizeInNewSpace = 512*KB;
-#endif
 
   NewSpace new_space_;
   OldSpace* old_pointer_space_;
@@ -2405,8 +2356,6 @@ class Heap {
   bool configured_;
 
   ExternalStringTable external_string_table_;
-
-  ErrorObjectList error_object_list_;
 
   VisitorDispatchTable<ScavengingCallback> scavenging_visitors_table_;
 

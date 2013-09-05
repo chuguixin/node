@@ -44,11 +44,9 @@ class SignalWrap : public HandleWrap {
   static void Initialize(Handle<Object> target) {
     HandleScope scope(node_isolate);
 
-    HandleWrap::Initialize(target);
-
     Local<FunctionTemplate> constructor = FunctionTemplate::New(New);
     constructor->InstanceTemplate()->SetInternalFieldCount(1);
-    constructor->SetClassName(String::NewSymbol("Signal"));
+    constructor->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "Signal"));
 
     NODE_SET_PROTOTYPE_METHOD(constructor, "close", HandleWrap::Close);
     NODE_SET_PROTOTYPE_METHOD(constructor, "ref", HandleWrap::Ref);
@@ -56,9 +54,10 @@ class SignalWrap : public HandleWrap {
     NODE_SET_PROTOTYPE_METHOD(constructor, "start", Start);
     NODE_SET_PROTOTYPE_METHOD(constructor, "stop", Stop);
 
-    onsignal_sym = String::New("onsignal");
+    onsignal_sym = FIXED_ONE_BYTE_STRING(node_isolate, "onsignal");
 
-    target->Set(String::NewSymbol("Signal"), constructor->GetFunction());
+    target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "Signal"),
+                constructor->GetFunction());
   }
 
  private:
@@ -72,7 +71,7 @@ class SignalWrap : public HandleWrap {
     new SignalWrap(args.This());
   }
 
-  SignalWrap(Handle<Object> object)
+  explicit SignalWrap(Handle<Object> object)
       : HandleWrap(object, reinterpret_cast<uv_handle_t*>(&handle_)) {
     int r = uv_signal_init(uv_default_loop(), &handle_);
     assert(r == 0);
@@ -83,7 +82,8 @@ class SignalWrap : public HandleWrap {
 
   static void Start(const FunctionCallbackInfo<Value>& args) {
     HandleScope scope(node_isolate);
-    UNWRAP(SignalWrap)
+    SignalWrap* wrap;
+    NODE_UNWRAP(args.This(), SignalWrap, wrap);
 
     int signum = args[0]->Int32Value();
     int err = uv_signal_start(&wrap->handle_, OnSignal, signum);
@@ -92,7 +92,8 @@ class SignalWrap : public HandleWrap {
 
   static void Stop(const FunctionCallbackInfo<Value>& args) {
     HandleScope scope(node_isolate);
-    UNWRAP(SignalWrap)
+    SignalWrap* wrap;
+    NODE_UNWRAP(args.This(), SignalWrap, wrap);
 
     int err = uv_signal_stop(&wrap->handle_);
     args.GetReturnValue().Set(err);

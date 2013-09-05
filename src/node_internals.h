@@ -22,10 +22,14 @@
 #ifndef SRC_NODE_INTERNALS_H_
 #define SRC_NODE_INTERNALS_H_
 
+#include "v8.h"
+
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-#include "v8.h"
+#define FIXED_ONE_BYTE_STRING(isolate, string)                                \
+  (node::OneByteString((isolate), (string), sizeof(string) - 1))
 
 struct sockaddr;
 
@@ -39,12 +43,12 @@ extern v8::Persistent<v8::Object> process_p;
 
 template <typename TypeName>
 class CachedBase {
-public:
+ public:
   CachedBase();
   operator v8::Handle<TypeName>() const;
   void operator=(v8::Handle<TypeName> that);  // Can only assign once.
   bool IsEmpty() const;
-private:
+ private:
   CachedBase(const CachedBase&);
   void operator=(const CachedBase&);
   v8::Persistent<TypeName> handle_;
@@ -52,14 +56,14 @@ private:
 
 template <typename TypeName>
 class Cached : public CachedBase<TypeName> {
-public:
+ public:
   operator v8::Handle<v8::Value>() const;
   void operator=(v8::Handle<TypeName> that);
 };
 
 template <>
 class Cached<v8::Value> : public CachedBase<v8::Value> {
-public:
+ public:
   operator v8::Handle<v8::Value>() const;
   void operator=(v8::Handle<v8::Value> that);
 };
@@ -69,15 +73,14 @@ public:
 // reference to the object.
 template <class TypeName>
 inline v8::Local<TypeName> PersistentToLocal(
-    const v8::Persistent<TypeName>& persistent);
-
-// If persistent.IsWeak() == false, then do not call persistent.Dispose()
-// while the returned Local<T> is still in scope, it will destroy the
-// reference to the object.
-template <class TypeName>
-inline v8::Local<TypeName> PersistentToLocal(
     v8::Isolate* isolate,
     const v8::Persistent<TypeName>& persistent);
+
+v8::Handle<v8::Value> MakeCallback(
+    const v8::Handle<v8::Object> recv,
+    uint32_t index,
+    int argc,
+    v8::Handle<v8::Value>* argv);
 
 template <typename TypeName>
 v8::Handle<v8::Value> MakeCallback(
@@ -93,12 +96,28 @@ v8::Handle<v8::Value> MakeCallback(
     int argc,
     v8::Handle<v8::Value>* argv);
 
-inline bool HasInstance(v8::Persistent<v8::FunctionTemplate>& function_template,
-                        v8::Handle<v8::Value> value);
+inline bool HasInstance(
+    const v8::Persistent<v8::FunctionTemplate>& function_template,
+    v8::Handle<v8::Value> value);
 
-inline v8::Local<v8::Object> NewInstance(v8::Persistent<v8::Function>& ctor,
-                                          int argc = 0,
-                                          v8::Handle<v8::Value>* argv = NULL);
+inline v8::Local<v8::Object> NewInstance(
+    const v8::Persistent<v8::Function>& ctor,
+    int argc = 0,
+    v8::Handle<v8::Value>* argv = NULL);
+
+// Convenience wrapper around v8::String::NewFromOneByte().
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const char* data,
+                                           int length = -1);
+
+// For the people that compile with -funsigned-char.
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const signed char* data,
+                                           int length = -1);
+
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const unsigned char* data,
+                                           int length = -1);
 
 // Convert a struct sockaddr to a { address: '1.2.3.4', port: 1234 } JS object.
 // Sets address and port properties on the info object and returns it.
@@ -131,12 +150,14 @@ inline static int snprintf(char* buf, unsigned int len, const char* fmt, ...) {
 // g++ in strict mode complains loudly about the system offsetof() macro
 // because it uses NULL as the base address.
 # define offset_of(type, member) \
-  ((intptr_t) ((char *) &(((type *) 8)->member) - 8))
+  (reinterpret_cast<intptr_t>( \
+      reinterpret_cast<char*>(&(reinterpret_cast<type*>(8)->member)) - 8))
 #endif
 
 #ifndef container_of
 # define container_of(ptr, type, member) \
-  ((type *) ((char *) (ptr) - offset_of(type, member)))
+  (reinterpret_cast<type*>(reinterpret_cast<char*>(ptr) - \
+                           offset_of(type, member)))
 #endif
 
 #ifndef ARRAY_SIZE
@@ -160,7 +181,7 @@ inline static int snprintf(char* buf, unsigned int len, const char* fmt, ...) {
 #define THROW_ERROR(fun)                                                      \
   do {                                                                        \
     v8::HandleScope scope(node_isolate);                                      \
-    v8::ThrowException(fun(v8::String::New(errmsg)));                         \
+    v8::ThrowException(fun(OneByteString(node_isolate, errmsg)));             \
   }                                                                           \
   while (0)
 
@@ -192,19 +213,36 @@ inline static void ThrowUVException(int errorno,
 
 NO_RETURN void FatalError(const char* location, const char* message);
 
-#define UNWRAP(type)                                                        \
-  assert(!args.This().IsEmpty());                                           \
-  assert(args.This()->InternalFieldCount() > 0);                            \
-  type* wrap = static_cast<type*>(                                          \
-      args.This()->GetAlignedPointerFromInternalField(0));                  \
-  if (!wrap) {                                                              \
-    fprintf(stderr, #type ": Aborting due to unwrap failure at %s:%d\n",    \
-            __FILE__, __LINE__);                                            \
-    abort();                                                                \
-  }
+#define NODE_WRAP(Object, Pointer)                                             \
+  do {                                                                         \
+    assert(!Object.IsEmpty());                                                 \
+    assert(Object->InternalFieldCount() > 0);                                  \
+    Object->SetAlignedPointerInInternalField(0, Pointer);                      \
+  }                                                                            \
+  while (0)
 
-// allow for quick domain check
-extern bool using_domains;
+#define NODE_UNWRAP(Object, TypeName, Var)                                     \
+  do {                                                                         \
+    assert(!Object.IsEmpty());                                                 \
+    assert(Object->InternalFieldCount() > 0);                                  \
+    Var = static_cast<TypeName*>(                                              \
+        Object->GetAlignedPointerFromInternalField(0));                        \
+    if (!Var) {                                                                \
+      fprintf(stderr, #TypeName ": Aborting due to unwrap failure at %s:%d\n", \
+              __FILE__, __LINE__);                                             \
+      abort();                                                                 \
+    }                                                                          \
+  }                                                                            \
+  while (0)
+
+#define NODE_UNWRAP_NO_ABORT(Object, TypeName, Var)                            \
+  do {                                                                         \
+    assert(!Object.IsEmpty());                                                 \
+    assert(Object->InternalFieldCount() > 0);                                  \
+    Var = static_cast<TypeName*>(                                              \
+        Object->GetAlignedPointerFromInternalField(0));                        \
+  }                                                                            \
+  while (0)
 
 enum Endianness {
   kLittleEndian,  // _Not_ LITTLE_ENDIAN, clashes with endian.h.
@@ -250,12 +288,6 @@ inline MUST_USE_RESULT bool ParseArrayIndex(v8::Handle<v8::Value> arg,
 
 template <class TypeName>
 inline v8::Local<TypeName> PersistentToLocal(
-    const v8::Persistent<TypeName>& persistent) {
-  return PersistentToLocal(node_isolate, persistent);
-}
-
-template <class TypeName>
-inline v8::Local<TypeName> PersistentToLocal(
     v8::Isolate* isolate,
     const v8::Persistent<TypeName>& persistent) {
   if (persistent.IsWeak()) {
@@ -272,7 +304,7 @@ CachedBase<TypeName>::CachedBase() {
 
 template <typename TypeName>
 CachedBase<TypeName>::operator v8::Handle<TypeName>() const {
-  return PersistentToLocal(handle_);
+  return PersistentToLocal(node_isolate, handle_);
 }
 
 template <typename TypeName>
@@ -310,7 +342,7 @@ v8::Handle<v8::Value> MakeCallback(
     const TypeName method,
     int argc,
     v8::Handle<v8::Value>* argv) {
-  v8::Local<v8::Object> recv_obj = PersistentToLocal(recv);
+  v8::Local<v8::Object> recv_obj = PersistentToLocal(node_isolate, recv);
   return MakeCallback(recv_obj, method, argc, argv);
 }
 
@@ -324,20 +356,55 @@ v8::Handle<v8::Value> MakeCallback(
   return MakeCallback(recv, handle, argc, argv);
 }
 
-inline bool HasInstance(v8::Persistent<v8::FunctionTemplate>& function_template,
-                        v8::Handle<v8::Value> value) {
+inline bool HasInstance(
+    const v8::Persistent<v8::FunctionTemplate>& function_template,
+    v8::Handle<v8::Value> value) {
+  if (function_template.IsEmpty()) return false;
   v8::Local<v8::FunctionTemplate> function_template_handle =
-      PersistentToLocal(function_template);
+      PersistentToLocal(node_isolate, function_template);
   return function_template_handle->HasInstance(value);
 }
 
-inline v8::Local<v8::Object> NewInstance(v8::Persistent<v8::Function>& ctor,
-                                          int argc,
-                                          v8::Handle<v8::Value>* argv) {
-  v8::Local<v8::Function> constructor_handle = PersistentToLocal(ctor);
+inline v8::Local<v8::Object> NewInstance(
+    const v8::Persistent<v8::Function>& ctor,
+    int argc,
+    v8::Handle<v8::Value>* argv) {
+  v8::Local<v8::Function> constructor_handle =
+      PersistentToLocal(node_isolate, ctor);
   return constructor_handle->NewInstance(argc, argv);
 }
 
-} // namespace node
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const char* data,
+                                           int length) {
+  return v8::String::NewFromOneByte(isolate,
+                                    reinterpret_cast<const uint8_t*>(data),
+                                    v8::String::kNormalString,
+                                    length);
+}
 
-#endif // SRC_NODE_INTERNALS_H_
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const signed char* data,
+                                           int length) {
+  return v8::String::NewFromOneByte(isolate,
+                                    reinterpret_cast<const uint8_t*>(data),
+                                    v8::String::kNormalString,
+                                    length);
+}
+
+inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
+                                           const unsigned char* data,
+                                           int length) {
+  return v8::String::NewFromOneByte(isolate,
+                                    reinterpret_cast<const uint8_t*>(data),
+                                    v8::String::kNormalString,
+                                    length);
+}
+
+bool InDomain();
+
+v8::Handle<v8::Value> GetDomain();
+
+}  // namespace node
+
+#endif  // SRC_NODE_INTERNALS_H_

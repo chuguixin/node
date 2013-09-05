@@ -21,13 +21,13 @@
 
 #include "string_bytes.h"
 
-#include <assert.h>
-#include <string.h>  // memcpy
-#include <limits.h>
-
 #include "node.h"
 #include "node_buffer.h"
 #include "v8.h"
+
+#include <assert.h>
+#include <limits.h>
+#include <string.h>  // memcpy
 
 // When creating strings >= this length v8's gc spins up and consumes
 // most of the execution time. For these cases it's more performant to
@@ -230,15 +230,18 @@ size_t hex_decode(char* buf,
 }
 
 
-bool GetExternalParts(Handle<Value> val, const char** data, size_t* len) {
+bool StringBytes::GetExternalParts(Handle<Value> val,
+                                   const char** data,
+                                   size_t* len) {
   if (Buffer::HasInstance(val)) {
     *data = Buffer::Data(val);
     *len = Buffer::Length(val);
     return true;
-
   }
 
-  assert(val->IsString());
+  if (!val->IsString())
+    return false;
+
   Local<String> str = Local<String>::New(val.As<String>());
 
   if (str->IsExternalAscii()) {
@@ -270,7 +273,7 @@ size_t StringBytes::Write(char* buf,
   size_t len = 0;
   bool is_extern = GetExternalParts(val, &data, &len);
 
-  Local<String> str = val->ToString();
+  Local<String> str = val.As<String>();
   len = len < buflen ? len : buflen;
 
   int flags = String::NO_NULL_TERMINATION |
@@ -292,7 +295,10 @@ size_t StringBytes::Write(char* buf,
       break;
 
     case UTF8:
-      len = str->WriteUtf8(buf, buflen, chars_written, flags);
+      if (is_extern)
+        memcpy(buf, data, len);
+      else
+        len = str->WriteUtf8(buf, buflen, chars_written, flags);
       break;
 
     case UCS2:
@@ -335,6 +341,13 @@ size_t StringBytes::Write(char* buf,
   }
 
   return len;
+}
+
+
+bool StringBytes::IsValidString(Handle<String> string, enum encoding enc) {
+  if (enc == HEX && string->Length() % 2 != 0) return false;
+  // TODO(bnoordhuis) Add BASE64 check?
+  return true;
 }
 
 
@@ -393,9 +406,12 @@ size_t StringBytes::Size(Handle<Value> val, enum encoding encoding) {
   size_t data_size = 0;
   bool is_buffer = Buffer::HasInstance(val);
 
-  if (is_buffer && (encoding == BUFFER || encoding == BINARY)) {
+  if (is_buffer && (encoding == BUFFER || encoding == BINARY))
     return Buffer::Length(val);
-  }
+
+  const char* data;
+  if (GetExternalParts(val, &data, &data_size))
+    return data_size;
 
   Local<String> str = val->ToString();
 
@@ -448,7 +464,7 @@ static bool contains_non_ascii(const char* src, size_t len) {
     return contains_non_ascii_slow(src, len);
   }
 
-  const unsigned bytes_per_word = sizeof(void*);
+  const unsigned bytes_per_word = sizeof(uintptr_t);
   const unsigned align_mask = bytes_per_word - 1;
   const unsigned unaligned = reinterpret_cast<uintptr_t>(src) & align_mask;
 
@@ -495,7 +511,7 @@ static void force_ascii(const char* src, char* dst, size_t len) {
     return;
   }
 
-  const unsigned bytes_per_word = sizeof(void*);
+  const unsigned bytes_per_word = sizeof(uintptr_t);
   const unsigned align_mask = bytes_per_word - 1;
   const unsigned src_unalign = reinterpret_cast<uintptr_t>(src) & align_mask;
   const unsigned dst_unalign = reinterpret_cast<uintptr_t>(dst) & align_mask;
@@ -635,20 +651,14 @@ Local<Value> StringBytes::Encode(const char* buf,
         char* out = new char[buflen];
         force_ascii(buf, out, buflen);
         if (buflen < EXTERN_APEX) {
-          val = String::NewFromOneByte(node_isolate,
-                                       reinterpret_cast<const uint8_t*>(out),
-                                       String::kNormalString,
-                                       buflen);
+          val = OneByteString(node_isolate, out, buflen);
           delete[] out;
         } else {
           val = ExternOneByteString::New(out, buflen);
         }
       } else {
         if (buflen < EXTERN_APEX)
-          val = String::NewFromOneByte(node_isolate,
-                                       reinterpret_cast<const uint8_t*>(buf),
-                                       String::kNormalString,
-                                       buflen);
+          val = OneByteString(node_isolate, buf, buflen);
         else
           val = ExternOneByteString::NewFromCopy(buf, buflen);
       }
@@ -663,10 +673,7 @@ Local<Value> StringBytes::Encode(const char* buf,
 
     case BINARY:
       if (buflen < EXTERN_APEX)
-        val = String::NewFromOneByte(node_isolate,
-                                     reinterpret_cast<const uint8_t*>(buf),
-                                     String::kNormalString,
-                                     buflen);
+        val = OneByteString(node_isolate, buf, buflen);
       else
         val = ExternOneByteString::NewFromCopy(buf, buflen);
       break;
@@ -679,10 +686,7 @@ Local<Value> StringBytes::Encode(const char* buf,
       assert(written == dlen);
 
       if (dlen < EXTERN_APEX) {
-        val = String::NewFromOneByte(node_isolate,
-                                     reinterpret_cast<const uint8_t*>(dst),
-                                     String::kNormalString,
-                                     dlen);
+        val = OneByteString(node_isolate, dst, dlen);
         delete[] dst;
       } else {
         val = ExternOneByteString::New(dst, dlen);
@@ -709,10 +713,7 @@ Local<Value> StringBytes::Encode(const char* buf,
       assert(written == dlen);
 
       if (dlen < EXTERN_APEX) {
-        val = String::NewFromOneByte(node_isolate,
-                                     reinterpret_cast<const uint8_t*>(dst),
-                                     String::kNormalString,
-                                     dlen);
+        val = OneByteString(node_isolate, dst, dlen);
         delete[] dst;
       } else {
         val = ExternOneByteString::New(dst, dlen);

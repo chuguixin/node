@@ -40,7 +40,6 @@ namespace internal {
 #define CODE_STUB_LIST_ALL_PLATFORMS(V)  \
   V(CallFunction)                        \
   V(CallConstruct)                       \
-  V(UnaryOp)                             \
   V(BinaryOp)                            \
   V(StringAdd)                           \
   V(SubString)                           \
@@ -474,15 +473,19 @@ class InterruptStub : public PlatformCodeStub {
 };
 
 
-class ToNumberStub: public PlatformCodeStub {
+class ToNumberStub: public HydrogenCodeStub {
  public:
   ToNumberStub() { }
 
-  void Generate(MacroAssembler* masm);
+  virtual Handle<Code> GenerateCode();
+
+  virtual void InitializeInterfaceDescriptor(
+      Isolate* isolate,
+      CodeStubInterfaceDescriptor* descriptor);
 
  private:
   Major MajorKey() { return ToNumber; }
-  int MinorKey() { return 0; }
+  int NotMissMinorKey() { return 0; }
 };
 
 
@@ -586,73 +589,6 @@ class StoreGlobalStub : public HydrogenCodeStub {
   int bit_field_;
 
   DISALLOW_COPY_AND_ASSIGN(StoreGlobalStub);
-};
-
-
-class UnaryOpStub : public HydrogenCodeStub {
- public:
-  // Stub without type info available -> construct uninitialized
-  explicit UnaryOpStub(Token::Value operation)
-      : HydrogenCodeStub(UNINITIALIZED), operation_(operation) { }
-  explicit UnaryOpStub(Code::ExtraICState ic_state) :
-      state_(StateBits::decode(ic_state)),
-      operation_(OperatorBits::decode(ic_state)) { }
-
-  virtual void InitializeInterfaceDescriptor(
-      Isolate* isolate,
-      CodeStubInterfaceDescriptor* descriptor);
-
-  virtual Code::Kind GetCodeKind() const { return Code::UNARY_OP_IC; }
-  virtual InlineCacheState GetICState() {
-    if (state_.Contains(GENERIC)) {
-      return MEGAMORPHIC;
-    } else if (state_.IsEmpty()) {
-      return PREMONOMORPHIC;
-    } else {
-      return MONOMORPHIC;
-    }
-  }
-  virtual Code::ExtraICState GetExtraICState() {
-    return OperatorBits::encode(operation_) |
-           StateBits::encode(state_.ToIntegral());
-  }
-
-  Token::Value operation() { return operation_; }
-  Handle<JSFunction> ToJSFunction(Isolate* isolate);
-  Builtins::JavaScript ToJSBuiltin();
-
-  void UpdateStatus(Handle<Object> object);
-  MaybeObject* Result(Handle<Object> object, Isolate* isolate);
-  Handle<Code> GenerateCode();
-  Handle<Type> GetType(Isolate* isolate);
-
- protected:
-  void PrintState(StringStream* stream);
-  void PrintBaseName(StringStream* stream);
-
- private:
-  enum UnaryOpType {
-    SMI,
-    HEAP_NUMBER,
-    GENERIC,
-    NUMBER_OF_TYPES
-  };
-
-  class State : public EnumSet<UnaryOpType, byte> {
-   public:
-    State() : EnumSet<UnaryOpType, byte>() { }
-    explicit State(byte bits) : EnumSet<UnaryOpType, byte>(bits) { }
-    void Print(StringStream* stream) const;
-  };
-
-  class StateBits : public BitField<int, 0, NUMBER_OF_TYPES> { };
-  class OperatorBits : public BitField<Token::Value, NUMBER_OF_TYPES, 8> { };
-
-  State state_;
-  Token::Value operation_;
-
-  virtual CodeStub::Major MajorKey() { return UnaryOp; }
-  virtual int NotMissMinorKey() { return GetExtraICState(); }
 };
 
 
@@ -2303,48 +2239,6 @@ class ElementsTransitionAndStoreStub : public HydrogenCodeStub {
   KeyedAccessStoreMode store_mode_;
 
   DISALLOW_COPY_AND_ASSIGN(ElementsTransitionAndStoreStub);
-};
-
-
-// TODO(bmeurer) Remove this when compiled transitions is enabled
-class ElementsTransitionAndStorePlatformStub : public PlatformCodeStub {
- public:
-  ElementsTransitionAndStorePlatformStub(ElementsKind from,
-                                         ElementsKind to,
-                                         bool is_jsarray,
-                                         StrictModeFlag strict_mode,
-                                         KeyedAccessStoreMode store_mode)
-      : from_(from),
-        to_(to),
-        is_jsarray_(is_jsarray),
-        strict_mode_(strict_mode),
-        store_mode_(store_mode) {}
-
- private:
-  class FromBits:       public BitField<ElementsKind,        0, 8> {};
-  class ToBits:         public BitField<ElementsKind,        8, 8> {};
-  class IsJSArrayBits:  public BitField<bool,                16, 1> {};
-  class StrictModeBits: public BitField<StrictModeFlag,      17, 1> {};
-  class StoreModeBits: public BitField<KeyedAccessStoreMode, 18, 4> {};
-
-  Major MajorKey() { return ElementsTransitionAndStore; }
-  int MinorKey() {
-    return FromBits::encode(from_) |
-        ToBits::encode(to_) |
-        IsJSArrayBits::encode(is_jsarray_) |
-        StrictModeBits::encode(strict_mode_) |
-        StoreModeBits::encode(store_mode_);
-  }
-
-  void Generate(MacroAssembler* masm);
-
-  ElementsKind from_;
-  ElementsKind to_;
-  bool is_jsarray_;
-  StrictModeFlag strict_mode_;
-  KeyedAccessStoreMode store_mode_;
-
-  DISALLOW_COPY_AND_ASSIGN(ElementsTransitionAndStorePlatformStub);
 };
 
 

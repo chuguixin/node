@@ -207,10 +207,10 @@ TestArbitrary(new WeakMap);
 
 
 // Test direct constructor call
-assertTrue(Set() instanceof Set);
-assertTrue(Map() instanceof Map);
-assertTrue(WeakMap() instanceof WeakMap);
-assertTrue(WeakSet() instanceof WeakSet);
+assertThrows(function() { Set(); }, TypeError);
+assertThrows(function() { Map(); }, TypeError);
+assertThrows(function() { WeakMap(); }, TypeError);
+assertThrows(function() { WeakSet(); }, TypeError);
 
 
 // Test whether NaN values as keys are treated correctly.
@@ -288,11 +288,26 @@ assertEquals("WeakMap", WeakMap.name);
 assertEquals("WeakSet", WeakSet.name);
 
 
+// Test prototype property of Set, Map, WeakMap and WeakSet.
+function TestPrototype(C) {
+  assertTrue(C.prototype instanceof Object);
+  assertEquals({
+    value: {},
+    writable: true,  // TODO(2793): This should be non-writable.
+    enumerable: false,
+    configurable: false
+  }, Object.getOwnPropertyDescriptor(C, "prototype"));
+}
+TestPrototype(Set);
+TestPrototype(Map);
+TestPrototype(WeakMap);
+TestPrototype(WeakSet);
+
+
 // Test constructor property of the Set, Map, WeakMap and WeakSet prototype.
 function TestConstructor(C) {
   assertFalse(C === Object.prototype.constructor);
   assertSame(C, C.prototype.constructor);
-  assertSame(C, C().__proto__.constructor);
   assertSame(C, (new C).__proto__.constructor);
 }
 TestConstructor(Set);
@@ -301,6 +316,7 @@ TestConstructor(WeakMap);
 TestConstructor(WeakSet);
 
 
+// Test the Set, Map, WeakMap and WeakSet global properties themselves.
 function TestDescriptor(global, C) {
   assertEquals({
     value: C,

@@ -571,6 +571,8 @@ class MarkCompactCollector {
 
   static void Initialize();
 
+  void TearDown();
+
   void CollectEvacuationCandidates(PagedSpace* space);
 
   void AddEvacuationCandidate(Page* p);
@@ -636,7 +638,7 @@ class MarkCompactCollector {
   static void VerifyMarkbitsAreClean(PagedSpace* space);
   static void VerifyMarkbitsAreClean(NewSpace* space);
   void VerifyWeakEmbeddedMapsInOptimizedCode();
-  void VerifyOmittedPrototypeChecks();
+  void VerifyOmittedMapChecks();
 #endif
 
   // Sweep a single page from the given space conservatively.
@@ -743,6 +745,7 @@ class MarkCompactCollector {
   ~MarkCompactCollector();
 
   bool MarkInvalidatedCode();
+  bool WillBeDeoptimized(Code* code);
   void RemoveDeadInvalidatedCode();
   void ProcessInvalidatedCode(ObjectVisitor* visitor);
 
@@ -946,6 +949,7 @@ class MarkCompactCollector {
   MarkingDeque marking_deque_;
   CodeFlusher* code_flusher_;
   Object* encountered_weak_collections_;
+  Object* code_to_deoptimize_;
 
   List<Page*> evacuation_candidates_;
   List<Code*> invalidated_code_;

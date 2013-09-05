@@ -19,19 +19,19 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "node_http_parser.h"
-
-#include "v8.h"
 #include "node.h"
 #include "node_buffer.h"
+#include "node_http_parser.h"
+#include "v8.h"
 
-#include <string.h>  /* strdup() */
-#if !defined(_MSC_VER)
-#include <strings.h>  /* strcasecmp() */
-#else
+#include <stdlib.h>  // free()
+#include <string.h>  // strdup()
+
+#if defined(_MSC_VER)
 #define strcasecmp _stricmp
+#else
+#include <strings.h>  // strcasecmp()
 #endif
-#include <stdlib.h>  /* free() */
 
 // This is a binding to http_parser (https://github.com/joyent/http-parser)
 // The goal is to decouple sockets from parsing for more javascript-level
@@ -60,10 +60,10 @@ using v8::Object;
 using v8::String;
 using v8::Value;
 
-static Cached<String> on_headers_sym;
-static Cached<String> on_headers_complete_sym;
-static Cached<String> on_body_sym;
-static Cached<String> on_message_complete_sym;
+const uint32_t kOnHeaders = 0;
+const uint32_t kOnHeadersComplete = 1;
+const uint32_t kOnBody = 2;
+const uint32_t kOnMessageComplete = 3;
 
 static Cached<String> method_sym;
 static Cached<String> status_code_sym;
@@ -161,7 +161,7 @@ struct StringPtr {
       str_ = str;
     else if (on_heap_ || str_ + size_ != str) {
       // Non-consecutive input, make a copy on the heap.
-      // TODO Use slab allocation, O(n) allocs is bad.
+      // TODO(bnoordhuis) Use slab allocation, O(n) allocs is bad.
       char* s = new char[size_ + size];
       memcpy(s, str_, size_);
       memcpy(s + size_, str, size);
@@ -179,7 +179,7 @@ struct StringPtr {
 
   Local<String> ToString() const {
     if (str_)
-      return String::New(str_, size_);
+      return OneByteString(node_isolate, str_, size_);
     else
       return String::Empty(node_isolate);
   }
@@ -192,8 +192,8 @@ struct StringPtr {
 
 
 class Parser : public ObjectWrap {
-public:
-  Parser(enum http_parser_type type) : ObjectWrap() {
+ public:
+  explicit Parser(enum http_parser_type type) : ObjectWrap() {
     Init(type);
   }
 
@@ -228,7 +228,7 @@ public:
       fields_[num_fields_ - 1].Reset();
     }
 
-    assert(num_fields_ < (int)ARRAY_SIZE(fields_));
+    assert(num_fields_ < static_cast<int>(ARRAY_SIZE(fields_)));
     assert(num_fields_ == num_values_ + 1);
 
     fields_[num_fields_ - 1].Update(at, length);
@@ -244,7 +244,7 @@ public:
       values_[num_values_ - 1].Reset();
     }
 
-    assert(num_values_ < (int)ARRAY_SIZE(values_));
+    assert(num_values_ < static_cast<int>(ARRAY_SIZE(values_)));
     assert(num_values_ == num_fields_);
 
     values_[num_values_ - 1].Update(at, length);
@@ -255,7 +255,7 @@ public:
 
   HTTP_CB(on_headers_complete) {
     Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(on_headers_complete_sym);
+    Local<Value> cb = obj->Get(kOnHeadersComplete);
 
     if (!cb->IsFunction())
       return 0;
@@ -265,8 +265,7 @@ public:
     if (have_flushed_) {
       // Slow case, flush remaining headers.
       Flush();
-    }
-    else {
+    } else {
       // Fast case, pass headers and URL to JS land.
       message_info->Set(headers_sym, CreateHeaders());
       if (parser_.type == HTTP_REQUEST)
@@ -316,7 +315,7 @@ public:
     HandleScope scope(node_isolate);
 
     Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(on_body_sym);
+    Local<Value> cb = obj->Get(kOnBody);
 
     if (!cb->IsFunction())
       return 0;
@@ -342,10 +341,10 @@ public:
     HandleScope scope(node_isolate);
 
     if (num_fields_)
-      Flush(); // Flush trailing HTTP headers.
+      Flush();  // Flush trailing HTTP headers.
 
     Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(on_message_complete_sym);
+    Local<Value> cb = obj->Get(kOnMessageComplete);
 
     if (!cb->IsFunction())
       return 0;
@@ -430,14 +429,16 @@ public:
 
     Local<Integer> nparsed_obj = Integer::New(nparsed, node_isolate);
     // If there was a parse error in one of the callbacks
-    // TODO What if there is an error on EOF?
+    // TODO(bnoordhuis) What if there is an error on EOF?
     if (!parser->parser_.upgrade && nparsed != buffer_len) {
       enum http_errno err = HTTP_PARSER_ERRNO(&parser->parser_);
 
-      Local<Value> e = Exception::Error(String::NewSymbol("Parse Error"));
+      Local<Value> e = Exception::Error(
+          FIXED_ONE_BYTE_STRING(node_isolate, "Parse Error"));
       Local<Object> obj = e->ToObject();
-      obj->Set(String::NewSymbol("bytesParsed"), nparsed_obj);
-      obj->Set(String::NewSymbol("code"), String::New(http_errno_name(err)));
+      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "bytesParsed"), nparsed_obj);
+      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "code"),
+               OneByteString(node_isolate, http_errno_name(err)));
       args.GetReturnValue().Set(e);
     } else {
       args.GetReturnValue().Set(nparsed_obj);
@@ -460,10 +461,13 @@ public:
     if (rv != 0) {
       enum http_errno err = HTTP_PARSER_ERRNO(&parser->parser_);
 
-      Local<Value> e = Exception::Error(String::NewSymbol("Parse Error"));
+      Local<Value> e = Exception::Error(
+          FIXED_ONE_BYTE_STRING(node_isolate, "Parse Error"));
       Local<Object> obj = e->ToObject();
-      obj->Set(String::NewSymbol("bytesParsed"), Integer::New(0, node_isolate));
-      obj->Set(String::NewSymbol("code"), String::New(http_errno_name(err)));
+      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "bytesParsed"),
+               Integer::New(0, node_isolate));
+      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "code"),
+               OneByteString(node_isolate, http_errno_name(err)));
       args.GetReturnValue().Set(e);
     }
   }
@@ -481,7 +485,7 @@ public:
   }
 
 
-private:
+ private:
 
   Local<Array> CreateHeaders() {
     // num_values_ is either -1 or the entry # of the last header
@@ -502,7 +506,7 @@ private:
     HandleScope scope(node_isolate);
 
     Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(on_headers_sym);
+    Local<Value> cb = obj->Get(kOnHeaders);
 
     if (!cb->IsFunction())
       return;
@@ -548,38 +552,44 @@ void InitHttpParser(Handle<Object> target) {
 
   Local<FunctionTemplate> t = FunctionTemplate::New(Parser::New);
   t->InstanceTemplate()->SetInternalFieldCount(1);
-  t->SetClassName(String::NewSymbol("HTTPParser"));
+  t->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "HTTPParser"));
 
-  t->Set(String::NewSymbol("REQUEST"),
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "REQUEST"),
          Integer::New(HTTP_REQUEST, node_isolate));
-  t->Set(String::NewSymbol("RESPONSE"),
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "RESPONSE"),
          Integer::New(HTTP_RESPONSE, node_isolate));
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnHeaders"),
+         Integer::NewFromUnsigned(kOnHeaders, node_isolate));
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnHeadersComplete"),
+         Integer::NewFromUnsigned(kOnHeadersComplete, node_isolate));
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnBody"),
+         Integer::NewFromUnsigned(kOnBody, node_isolate));
+  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnMessageComplete"),
+         Integer::NewFromUnsigned(kOnMessageComplete, node_isolate));
 
   NODE_SET_PROTOTYPE_METHOD(t, "execute", Parser::Execute);
   NODE_SET_PROTOTYPE_METHOD(t, "finish", Parser::Finish);
   NODE_SET_PROTOTYPE_METHOD(t, "reinitialize", Parser::Reinitialize);
 
-  target->Set(String::NewSymbol("HTTPParser"), t->GetFunction());
+  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "HTTPParser"),
+              t->GetFunction());
 
-  on_headers_sym          = String::New("onHeaders");
-  on_headers_complete_sym = String::New("onHeadersComplete");
-  on_body_sym             = String::New("onBody");
-  on_message_complete_sym = String::New("onMessageComplete");
-
-#define X(num, name, string) name##_sym = String::New(#string);
+#define X(num, name, string)                                                  \
+  name ## _sym = OneByteString(node_isolate, #string);
   HTTP_METHOD_MAP(X)
 #undef X
-  unknown_method_sym = String::New("UNKNOWN_METHOD");
+  unknown_method_sym = FIXED_ONE_BYTE_STRING(node_isolate, "UNKNOWN_METHOD");
 
-  method_sym = String::New("method");
-  status_code_sym = String::New("statusCode");
-  http_version_sym = String::New("httpVersion");
-  version_major_sym = String::New("versionMajor");
-  version_minor_sym = String::New("versionMinor");
-  should_keep_alive_sym = String::New("shouldKeepAlive");
-  upgrade_sym = String::New("upgrade");
-  headers_sym = String::New("headers");
-  url_sym = String::New("url");
+  method_sym = FIXED_ONE_BYTE_STRING(node_isolate, "method");
+  status_code_sym = FIXED_ONE_BYTE_STRING(node_isolate, "statusCode");
+  http_version_sym = FIXED_ONE_BYTE_STRING(node_isolate, "httpVersion");
+  version_major_sym = FIXED_ONE_BYTE_STRING(node_isolate, "versionMajor");
+  version_minor_sym = FIXED_ONE_BYTE_STRING(node_isolate, "versionMinor");
+  should_keep_alive_sym =
+      FIXED_ONE_BYTE_STRING(node_isolate, "shouldKeepAlive");
+  upgrade_sym = FIXED_ONE_BYTE_STRING(node_isolate, "upgrade");
+  headers_sym = FIXED_ONE_BYTE_STRING(node_isolate, "headers");
+  url_sym = FIXED_ONE_BYTE_STRING(node_isolate, "url");
 
   settings.on_message_begin    = Parser::on_message_begin;
   settings.on_url              = Parser::on_url;

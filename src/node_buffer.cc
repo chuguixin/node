@@ -53,7 +53,6 @@
   size_t length = end - start;
 
 namespace node {
-
 namespace Buffer {
 
 using v8::Function;
@@ -67,7 +66,6 @@ using v8::Object;
 using v8::Persistent;
 using v8::String;
 using v8::Uint32;
-using v8::Undefined;
 using v8::Value;
 
 static Persistent<Function> p_buffer_fn;
@@ -125,19 +123,13 @@ Local<Object> New(Handle<String> string, enum encoding enc) {
 }
 
 
-// TODO(trevnorris): these have a flaw by needing to call the Buffer inst then
-// Alloc. continue to look for a better architecture.
 Local<Object> New(size_t length) {
   HandleScope scope(node_isolate);
 
   assert(length <= kMaxLength);
 
-  Handle<Value> argv[2];
-  // this is safe b/c Undefined and length fits in an SMI, so there's no risk
-  // of GC reclaiming the values prematurely.
-  argv[0] = Undefined(node_isolate);
-  argv[1] = Uint32::New(length, node_isolate);
-  Local<Object> obj = NewInstance(p_buffer_fn, ARRAY_SIZE(argv), argv);
+  Local<Value> arg = Uint32::NewFromUnsigned(length, node_isolate);
+  Local<Object> obj = NewInstance(p_buffer_fn, 1, &arg);
 
   // TODO(trevnorris): done like this to handle HasInstance since only checks
   // if external array data has been set, but would like to use a better
@@ -164,12 +156,8 @@ Local<Object> New(const char* data, size_t length) {
 
   assert(length <= kMaxLength);
 
-  Handle<Value> argv[2];
-  // this is safe b/c Undefined and length fits in an SMI, so there's no risk
-  // of GC reclaiming the values prematurely.
-  argv[0] = Undefined(node_isolate);
-  argv[1] = Uint32::New(length, node_isolate);
-  Local<Object> obj = NewInstance(p_buffer_fn, ARRAY_SIZE(argv), argv);
+  Local<Value> arg = Uint32::NewFromUnsigned(length, node_isolate);
+  Local<Object> obj = NewInstance(p_buffer_fn, 1, &arg);
 
   // TODO(trevnorris): done like this to handle HasInstance since only checks
   // if external array data has been set, but would like to use a better
@@ -198,12 +186,8 @@ Local<Object> New(char* data,
 
   assert(length <= kMaxLength);
 
-  Handle<Value> argv[2];
-  // this is safe b/c Undefined and length fits in an SMI, so there's no risk
-  // of GC reclaiming the values prematurely.
-  argv[0] = Undefined(node_isolate);
-  argv[1] = Uint32::New(length, node_isolate);
-  Local<Object> obj = NewInstance(p_buffer_fn, ARRAY_SIZE(argv), argv);
+  Local<Value> arg = Uint32::NewFromUnsigned(length, node_isolate);
+  Local<Object> obj = NewInstance(p_buffer_fn, 1, &arg);
 
   smalloc::Alloc(obj, data, length, callback, hint);
 
@@ -216,12 +200,8 @@ Local<Object> Use(char* data, uint32_t length) {
 
   assert(length <= kMaxLength);
 
-  Handle<Value> argv[2];
-  // this is safe b/c Undefined and length fits in an SMI, so there's no risk
-  // of GC reclaiming the values prematurely.
-  argv[0] = Undefined(node_isolate);
-  argv[1] = Uint32::New(length, node_isolate);
-  Local<Object> obj = NewInstance(p_buffer_fn, ARRAY_SIZE(argv), argv);
+  Local<Value> arg = Uint32::NewFromUnsigned(length, node_isolate);
+  Local<Object> obj = NewInstance(p_buffer_fn, 1, &arg);
 
   smalloc::Alloc(obj, data, length);
 
@@ -560,14 +540,12 @@ void SetupBufferJS(const FunctionCallbackInfo<Value>& args) {
 
   Local<Function> bv = args[0].As<Function>();
   p_buffer_fn.Reset(node_isolate, bv);
-  Local<Value> proto_v = bv->Get(String::New("prototype"));
+  Local<Value> proto_v =
+      bv->Get(FIXED_ONE_BYTE_STRING(node_isolate, "prototype"));
 
   assert(proto_v->IsObject());
 
   Local<Object> proto = proto_v.As<Object>();
-
-  bv->Set(String::New("byteLength"),
-          FunctionTemplate::New(ByteLength)->GetFunction());
 
   NODE_SET_METHOD(proto, "asciiSlice", AsciiSlice);
   NODE_SET_METHOD(proto, "base64Slice", Base64Slice);
@@ -597,20 +575,28 @@ void SetupBufferJS(const FunctionCallbackInfo<Value>& args) {
   NODE_SET_METHOD(proto, "fill", Fill);
 
   // for backwards compatibility
-  proto->Set(String::New("offset"), Uint32::New(0, node_isolate), v8::ReadOnly);
+  proto->Set(FIXED_ONE_BYTE_STRING(node_isolate, "offset"),
+             Uint32::New(0, node_isolate),
+             v8::ReadOnly);
+
+  assert(args[1]->IsObject());
+
+  Local<Object> internal = args[1].As<Object>();
+
+  internal->Set(FIXED_ONE_BYTE_STRING(node_isolate, "byteLength"),
+                FunctionTemplate::New(ByteLength)->GetFunction());
 }
 
 
 void Initialize(Handle<Object> target) {
   HandleScope scope(node_isolate);
 
-  target->Set(String::New("setupBufferJS"),
+  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "setupBufferJS"),
               FunctionTemplate::New(SetupBufferJS)->GetFunction());
 }
 
 
 }  // namespace Buffer
-
 }  // namespace node
 
 NODE_MODULE(node_buffer, node::Buffer::Initialize)
