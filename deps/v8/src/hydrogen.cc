@@ -2729,16 +2729,6 @@ void TestContext::BuildBranch(HValue* value) {
   if (value != NULL && value->CheckFlag(HValue::kIsArguments)) {
     builder->Bailout(kArgumentsObjectValueInATestContext);
   }
-  if (value->IsConstant()) {
-    HConstant* constant_value = HConstant::cast(value);
-    if (constant_value->BooleanValue()) {
-      builder->current_block()->Goto(if_true(), builder->function_state());
-    } else {
-      builder->current_block()->Goto(if_false(), builder->function_state());
-    }
-    builder->set_current_block(NULL);
-    return;
-  }
   HBasicBlock* empty_true = builder->graph()->CreateBasicBlock();
   HBasicBlock* empty_false = builder->graph()->CreateBasicBlock();
   ToBooleanStub::Types expected(condition()->to_boolean_types());
@@ -3083,7 +3073,9 @@ void HOptimizedGraphBuilder::SetUpScope(Scope* scope) {
 
 void HOptimizedGraphBuilder::VisitStatements(ZoneList<Statement*>* statements) {
   for (int i = 0; i < statements->length(); i++) {
-    CHECK_ALIVE(Visit(statements->at(i)));
+    Statement* stmt = statements->at(i);
+    CHECK_ALIVE(Visit(stmt));
+    if (stmt->IsJump()) break;
   }
 }
 
@@ -5365,8 +5357,6 @@ void HOptimizedGraphBuilder::VisitThrow(Throw* expr) {
   HThrow* instr = Add<HThrow>(value);
   instr->set_position(expr->position());
   Add<HSimulate>(expr->id());
-  current_block()->FinishExit(new(zone()) HAbnormalExit);
-  set_current_block(NULL);
 }
 
 
@@ -5536,6 +5526,7 @@ HInstruction* HOptimizedGraphBuilder::TryBuildConsolidatedElementLoad(
   bool has_smi_or_object_maps = false;
   bool has_js_array_access = false;
   bool has_non_js_array_access = false;
+  bool has_seen_holey_elements = false;
   Handle<Map> most_general_consolidated_map;
   for (int i = 0; i < maps->length(); ++i) {
     Handle<Map> map = maps->at(i);
@@ -5558,6 +5549,10 @@ HInstruction* HOptimizedGraphBuilder::TryBuildConsolidatedElementLoad(
     } else {
       return NULL;
     }
+    // Remember if we've ever seen holey elements.
+    if (IsHoleyElementsKind(map->elements_kind())) {
+      has_seen_holey_elements = true;
+    }
     // Remember the most general elements kind, the code for its load will
     // properly handle all of the more specific cases.
     if ((i == 0) || IsMoreGeneralElementsKindTransition(
@@ -5569,10 +5564,15 @@ HInstruction* HOptimizedGraphBuilder::TryBuildConsolidatedElementLoad(
   if (!has_double_maps && !has_smi_or_object_maps) return NULL;
 
   HCheckMaps* check_maps = Add<HCheckMaps>(object, maps);
+  // FAST_ELEMENTS is considered more general than FAST_HOLEY_SMI_ELEMENTS.
+  // If we've seen both, the consolidated load must use FAST_HOLEY_ELEMENTS.
+  ElementsKind consolidated_elements_kind = has_seen_holey_elements
+      ? GetHoleyElementsKind(most_general_consolidated_map->elements_kind())
+      : most_general_consolidated_map->elements_kind();
   HInstruction* instr = BuildUncheckedMonomorphicElementAccess(
       object, key, val, check_maps,
       most_general_consolidated_map->instance_type() == JS_ARRAY_TYPE,
-      most_general_consolidated_map->elements_kind(),
+      consolidated_elements_kind,
       false, NEVER_RETURN_HOLE, STANDARD_STORE);
   return instr;
 }
@@ -8241,7 +8241,10 @@ HInstruction* HOptimizedGraphBuilder::BuildFastLiteral(
     int pointer_size,
     AllocationSiteMode mode) {
   NoObservableSideEffectsScope no_effects(this);
-
+  InstanceType instance_type = boilerplate_object->map()->instance_type();
+  ASSERT(instance_type == JS_ARRAY_TYPE || instance_type == JS_OBJECT_TYPE);
+  HType type = instance_type == JS_ARRAY_TYPE
+      ? HType::JSArray() : HType::JSObject();
   HInstruction* target = NULL;
   HInstruction* data_target = NULL;
 
@@ -8258,14 +8261,11 @@ HInstruction* HOptimizedGraphBuilder::BuildFastLiteral(
     }
     if (pointer_size != 0) {
       HValue* size_in_bytes = Add<HConstant>(pointer_size);
-      target = Add<HAllocate>(size_in_bytes, HType::JSObject(), TENURED,
-          JS_OBJECT_TYPE);
+      target = Add<HAllocate>(size_in_bytes, type, TENURED, instance_type);
     }
   } else {
-    InstanceType instance_type = boilerplate_object->map()->instance_type();
     HValue* size_in_bytes = Add<HConstant>(data_size + pointer_size);
-    target = Add<HAllocate>(size_in_bytes, HType::JSObject(), NOT_TENURED,
-        instance_type);
+    target = Add<HAllocate>(size_in_bytes, type, NOT_TENURED, instance_type);
   }
 
   int offset = 0;
@@ -8287,7 +8287,7 @@ void HOptimizedGraphBuilder::BuildEmitDeepCopy(
     int* data_offset,
     AllocationSiteMode mode) {
   bool create_allocation_site_info = mode == TRACK_ALLOCATION_SITE &&
-      boilerplate_object->map()->CanTrackAllocationSite();
+      AllocationSite::CanTrack(boilerplate_object->map()->instance_type());
 
   // If using allocation sites, then the payload on the site should already
   // be filled in as a valid (boilerplate) array.
@@ -8343,7 +8343,7 @@ void HOptimizedGraphBuilder::BuildEmitDeepCopy(
 
   // Create allocation site info.
   if (mode == TRACK_ALLOCATION_SITE &&
-      boilerplate_object->map()->CanTrackAllocationSite()) {
+      AllocationSite::CanTrack(boilerplate_object->map()->instance_type())) {
     elements_offset += AllocationMemento::kSize;
     *offset += AllocationMemento::kSize;
     BuildCreateAllocationMemento(target, JSArray::kSize, allocation_site);

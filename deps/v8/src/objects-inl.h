@@ -1312,7 +1312,7 @@ void JSObject::ValidateElements() {
 
 
 bool JSObject::ShouldTrackAllocationInfo() {
-  if (map()->CanTrackAllocationSite()) {
+  if (AllocationSite::CanTrack(map()->instance_type())) {
     if (!IsJSArray()) {
       return true;
     }
@@ -1346,6 +1346,11 @@ AllocationSiteMode AllocationSite::GetMode(ElementsKind from,
   }
 
   return DONT_TRACK_ALLOCATION_SITE;
+}
+
+
+inline bool AllocationSite::CanTrack(InstanceType type) {
+  return type == JS_ARRAY_TYPE;
 }
 
 
@@ -3578,11 +3583,6 @@ Code::Flags Code::flags() {
 }
 
 
-inline bool Map::CanTrackAllocationSite() {
-  return instance_type() == JS_ARRAY_TYPE;
-}
-
-
 void Map::set_owns_descriptors(bool is_shared) {
   set_bit_field3(OwnsDescriptors::update(bit_field3(), is_shared));
 }
@@ -4071,8 +4071,8 @@ bool Code::is_inline_cache_stub() {
 }
 
 
-bool Code::is_debug_break() {
-  return ic_state() == DEBUG_STUB && extra_ic_state() == DEBUG_BREAK;
+bool Code::is_debug_stub() {
+  return ic_state() == DEBUG_STUB;
 }
 
 

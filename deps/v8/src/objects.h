@@ -2719,7 +2719,11 @@ class JSObject: public JSReceiver {
   // don't want to be wasteful with long lived objects.
   static const int kMaxUncheckedOldFastElementsLength = 500;
 
-  static const int kInitialMaxFastElementArray = 100000;
+  // TODO(2790): HAllocate currently always allocates fast backing stores
+  // in new space, where on x64 we can only fit ~98K elements. Keep this
+  // limit lower than that until HAllocate is made smarter.
+  static const int kInitialMaxFastElementArray = 95000;
+
   static const int kFastPropertiesSoftLimit = 12;
   static const int kMaxFastProperties = 64;
   static const int kMaxInstanceSize = 255 * kPointerSize;
@@ -4909,7 +4913,7 @@ class Code: public HeapObject {
 
   // Testers for IC stub kinds.
   inline bool is_inline_cache_stub();
-  inline bool is_debug_break();
+  inline bool is_debug_stub();
   inline bool is_load_stub() { return kind() == LOAD_IC; }
   inline bool is_keyed_load_stub() { return kind() == KEYED_LOAD_IC; }
   inline bool is_store_stub() { return kind() == STORE_IC; }
@@ -5756,7 +5760,6 @@ class Map: public HeapObject {
     set_bit_field3(EnumLengthBits::update(bit_field3(), length));
   }
 
-  inline bool CanTrackAllocationSite();
   inline bool owns_descriptors();
   inline void set_owns_descriptors(bool is_shared);
   inline bool is_observed();
@@ -7825,6 +7828,7 @@ class AllocationSite: public Struct {
   static inline AllocationSiteMode GetMode(
       ElementsKind boilerplate_elements_kind);
   static inline AllocationSiteMode GetMode(ElementsKind from, ElementsKind to);
+  static inline bool CanTrack(InstanceType type);
 
   static const int kTransitionInfoOffset = HeapObject::kHeaderSize;
   static const int kWeakNextOffset = kTransitionInfoOffset + kPointerSize;
