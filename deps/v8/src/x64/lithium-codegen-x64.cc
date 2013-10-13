@@ -1216,6 +1216,7 @@ void LCodeGen::DoDivI(LDivI* instr) {
         __ cmpl(dividend, Immediate(0));
         __ j(less, &negative, Label::kNear);
         __ sarl(dividend, Immediate(power));
+        if (divisor < 0) __ negl(dividend);
         __ jmp(&done, Label::kNear);
 
         __ bind(&negative);
@@ -1406,7 +1407,7 @@ void LCodeGen::DoBitI(LBitI* instr) {
         break;
       case Token::BIT_XOR:
         if (right_operand == int32_t(~0)) {
-          __ not_(ToRegister(left));
+          __ notl(ToRegister(left));
         } else {
           __ xorl(ToRegister(left), Immediate(right_operand));
         }
