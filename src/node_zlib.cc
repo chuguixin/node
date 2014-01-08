@@ -22,10 +22,12 @@
 #include "node.h"
 #include "node_buffer.h"
 
+#include "async-wrap.h"
+#include "async-wrap-inl.h"
 #include "env.h"
 #include "env-inl.h"
-#include "weak-object.h"
-#include "weak-object-inl.h"
+#include "util.h"
+#include "util-inl.h"
 
 #include "v8.h"
 #include "zlib.h"
@@ -67,35 +69,30 @@ void InitZlib(v8::Handle<v8::Object> target);
 /**
  * Deflate/Inflate
  */
-class ZCtx : public WeakObject {
+class ZCtx : public AsyncWrap {
  public:
 
   ZCtx(Environment* env, Local<Object> wrap, node_zlib_mode mode)
-      : WeakObject(env->isolate(), wrap)
-      , chunk_size_(0)
-      , dictionary_(NULL)
-      , dictionary_len_(0)
-      , env_(env)
-      , err_(0)
-      , flush_(0)
-      , init_done_(false)
-      , level_(0)
-      , memLevel_(0)
-      , mode_(mode)
-      , strategy_(0)
-      , windowBits_(0)
-      , write_in_progress_(false)
-      , refs_(0) {
+      : AsyncWrap(env, wrap),
+        chunk_size_(0),
+        dictionary_(NULL),
+        dictionary_len_(0),
+        err_(0),
+        flush_(0),
+        init_done_(false),
+        level_(0),
+        memLevel_(0),
+        mode_(mode),
+        strategy_(0),
+        windowBits_(0),
+        write_in_progress_(false),
+        refs_(0) {
+    MakeWeak<ZCtx>(this);
   }
 
 
   ~ZCtx() {
     Close();
-  }
-
-
-  inline Environment* env() const {
-    return env_;
   }
 
   void Close() {
@@ -122,7 +119,7 @@ class ZCtx : public WeakObject {
 
   static void Close(const FunctionCallbackInfo<Value>& args) {
     HandleScope scope(node_isolate);
-    ZCtx* ctx = WeakObject::Unwrap<ZCtx>(args.This());
+    ZCtx* ctx = Unwrap<ZCtx>(args.This());
     ctx->Close();
   }
 
@@ -132,7 +129,7 @@ class ZCtx : public WeakObject {
     HandleScope scope(node_isolate);
     assert(args.Length() == 7);
 
-    ZCtx* ctx = WeakObject::Unwrap<ZCtx>(args.This());
+    ZCtx* ctx = Unwrap<ZCtx>(args.This());
     assert(ctx->init_done_ && "write before init");
     assert(ctx->mode_ != NONE && "already finalized");
 
@@ -198,7 +195,7 @@ class ZCtx : public WeakObject {
                   ZCtx::Process,
                   ZCtx::After);
 
-    args.GetReturnValue().Set(ctx->weak_object(node_isolate));
+    args.GetReturnValue().Set(ctx->object());
   }
 
 
@@ -207,7 +204,7 @@ class ZCtx : public WeakObject {
   // for a single write() call, until all of the input bytes have
   // been consumed.
   static void Process(uv_work_t* work_req) {
-    ZCtx *ctx = container_of(work_req, ZCtx, work_req_);
+    ZCtx *ctx = CONTAINER_OF(work_req, ZCtx, work_req_);
 
     // If the avail_out is left at 0, then it means that it ran out
     // of room.  If there was avail_out left over, then it means
@@ -256,11 +253,11 @@ class ZCtx : public WeakObject {
   static void After(uv_work_t* work_req, int status) {
     assert(status == 0);
 
-    ZCtx* ctx = container_of(work_req, ZCtx, work_req_);
+    ZCtx* ctx = CONTAINER_OF(work_req, ZCtx, work_req_);
     Environment* env = ctx->env();
 
-    Context::Scope context_scope(env->context());
     HandleScope handle_scope(env->isolate());
+    Context::Scope context_scope(env->context());
 
     // Acceptable error states depend on the type of zlib stream.
     switch (ctx->err_) {
@@ -288,9 +285,8 @@ class ZCtx : public WeakObject {
     ctx->write_in_progress_ = false;
 
     // call the write() cb
-    Local<Object> handle = ctx->weak_object(node_isolate);
     Local<Value> args[2] = { avail_in, avail_out };
-    MakeCallback(env, handle, env->callback_string(), ARRAY_SIZE(args), args);
+    ctx->MakeCallback(env->callback_string(), ARRAY_SIZE(args), args);
 
     ctx->Unref();
   }
@@ -305,13 +301,12 @@ class ZCtx : public WeakObject {
       message = ctx->strm_.msg;
     }
 
-    Local<Object> handle = ctx->weak_object(node_isolate);
     HandleScope scope(node_isolate);
     Local<Value> args[2] = {
       OneByteString(node_isolate, message),
       Number::New(ctx->err_)
     };
-    MakeCallback(env, handle, env->onerror_string(), ARRAY_SIZE(args), args);
+    ctx->MakeCallback(env->onerror_string(), ARRAY_SIZE(args), args);
 
     // no hope of rescue.
     ctx->write_in_progress_ = false;
@@ -319,8 +314,8 @@ class ZCtx : public WeakObject {
   }
 
   static void New(const FunctionCallbackInfo<Value>& args) {
-    Environment* env = Environment::GetCurrent(args.GetIsolate());
     HandleScope handle_scope(args.GetIsolate());
+    Environment* env = Environment::GetCurrent(args.GetIsolate());
 
     if (args.Length() < 1 || !args[0]->IsInt32()) {
       return ThrowTypeError("Bad argument");
@@ -341,7 +336,7 @@ class ZCtx : public WeakObject {
     assert((args.Length() == 4 || args.Length() == 5) &&
            "init(windowBits, level, memLevel, strategy, [dictionary])");
 
-    ZCtx* ctx = WeakObject::Unwrap<ZCtx>(args.This());
+    ZCtx* ctx = Unwrap<ZCtx>(args.This());
 
     int windowBits = args[0]->Uint32Value();
     assert((windowBits >= 8 && windowBits <= 15) && "invalid windowBits");
@@ -380,7 +375,7 @@ class ZCtx : public WeakObject {
 
     assert(args.Length() == 2 && "params(level, strategy)");
 
-    ZCtx* ctx = WeakObject::Unwrap<ZCtx>(args.This());
+    ZCtx* ctx = Unwrap<ZCtx>(args.This());
 
     Params(ctx, args[0]->Int32Value(), args[1]->Int32Value());
   }
@@ -388,7 +383,7 @@ class ZCtx : public WeakObject {
   static void Reset(const FunctionCallbackInfo<Value> &args) {
     HandleScope scope(node_isolate);
 
-    ZCtx* ctx = WeakObject::Unwrap<ZCtx>(args.This());
+    ZCtx* ctx = Unwrap<ZCtx>(args.This());
 
     Reset(ctx);
     SetDictionary(ctx);
@@ -459,7 +454,8 @@ class ZCtx : public WeakObject {
   }
 
   static void SetDictionary(ZCtx* ctx) {
-    if (ctx->dictionary_ == NULL) return;
+    if (ctx->dictionary_ == NULL)
+      return;
 
     ctx->err_ = Z_OK;
 
@@ -527,7 +523,7 @@ class ZCtx : public WeakObject {
   void Unref() {
     assert(refs_ > 0);
     if (--refs_ == 0) {
-      MakeWeak();
+      MakeWeak<ZCtx>(this);
     }
   }
 
@@ -537,7 +533,6 @@ class ZCtx : public WeakObject {
   int chunk_size_;
   Bytef* dictionary_;
   size_t dictionary_len_;
-  Environment* const env_;
   int err_;
   int flush_;
   bool init_done_;

@@ -127,8 +127,10 @@ Local<Object> New(Handle<String> string, enum encoding enc) {
 
 
 Local<Object> New(size_t length) {
+  HandleScope handle_scope(node_isolate);
   Environment* env = Environment::GetCurrent(node_isolate);
-  return Buffer::New(env, length);
+  Local<Object> obj = Buffer::New(env, length);
+  return handle_scope.Close(obj);
 }
 
 
@@ -160,8 +162,10 @@ Local<Object> New(Environment* env, size_t length) {
 
 
 Local<Object> New(const char* data, size_t length) {
+  HandleScope handle_scope(node_isolate);
   Environment* env = Environment::GetCurrent(node_isolate);
-  return Buffer::New(env, data, length);
+  Local<Object> obj = Buffer::New(env, data, length);
+  return handle_scope.Close(obj);
 }
 
 
@@ -199,8 +203,10 @@ Local<Object> New(char* data,
                   size_t length,
                   smalloc::FreeCallback callback,
                   void* hint) {
+  HandleScope handle_scope(node_isolate);
   Environment* env = Environment::GetCurrent(node_isolate);
-  return Buffer::New(env, data, length, callback, hint);
+  Local<Object> obj = Buffer::New(env, data, length, callback, hint);
+  return handle_scope.Close(obj);
 }
 
 
@@ -223,8 +229,10 @@ Local<Object> New(Environment* env,
 
 
 Local<Object> Use(char* data, uint32_t length) {
+  HandleScope handle_scope(node_isolate);
   Environment* env = Environment::GetCurrent(node_isolate);
-  return Buffer::Use(env, data, length);
+  Local<Object> obj = Buffer::Use(env, data, length);
+  return handle_scope.Close(obj);
 }
 
 
@@ -471,7 +479,8 @@ void ReadFloatGeneric(const FunctionCallbackInfo<Value>& args) {
   const void* data = args.This()->GetIndexedPropertiesExternalArrayData();
   const char* ptr = static_cast<const char*>(data) + offset;
   memcpy(na.bytes, ptr, sizeof(na.bytes));
-  if (endianness != GetEndianness()) Swizzle(na.bytes, sizeof(na.bytes));
+  if (endianness != GetEndianness())
+    Swizzle(na.bytes, sizeof(na.bytes));
 
   args.GetReturnValue().Set(na.val);
 }
@@ -525,7 +534,8 @@ uint32_t WriteFloatGeneric(const FunctionCallbackInfo<Value>& args) {
   union NoAlias na = { val };
   void* data = args.This()->GetIndexedPropertiesExternalArrayData();
   char* ptr = static_cast<char*>(data) + offset;
-  if (endianness != GetEndianness()) Swizzle(na.bytes, sizeof(na.bytes));
+  if (endianness != GetEndianness())
+    Swizzle(na.bytes, sizeof(na.bytes));
   memcpy(ptr, na.bytes, sizeof(na.bytes));
   return offset + sizeof(na.bytes);
 }
@@ -586,8 +596,8 @@ void ByteLength(const FunctionCallbackInfo<Value> &args) {
 
 // pass Buffer object to load prototype methods
 void SetupBufferJS(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args.GetIsolate());
   HandleScope handle_scope(args.GetIsolate());
+  Environment* env = Environment::GetCurrent(args.GetIsolate());
 
   assert(args[0]->IsFunction());
 
@@ -647,7 +657,6 @@ void Initialize(Handle<Object> target,
                 Handle<Value> unused,
                 Handle<Context> context) {
   Environment* env = Environment::GetCurrent(context);
-  HandleScope handle_scope(env->isolate());
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "setupBufferJS"),
               FunctionTemplate::New(SetupBufferJS)->GetFunction());
 }
